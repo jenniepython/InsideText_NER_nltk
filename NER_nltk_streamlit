@@ -32,9 +32,9 @@ name, auth_status, username = authenticator.login("Login", "main")
 if auth_status:
     authenticator.logout("Logout", "sidebar")
     st.sidebar.success(f"Welcome *{name}*")
-    st.write("🔐 This is your secure app content.")
+    st.write("This is your secure app content.")
 elif auth_status is False:
-    st.error("❌ Incorrect username or password.")
+    st.error("Incorrect username or password.")
 elif auth_status is None:
     st.warning("Please log in to continue.")
     st.stop()
