@@ -231,6 +231,8 @@ class EntityLinker:
         
         return entities
 
+    def get_coordinates(self, entities):
+
     def _is_valid_entity(self, entity_text: str, entity_type: str, 
                        pos_tags, entity_start_word_index: int, tokens) -> bool:
         """Validate an entity by analyzing its grammatical context."""
@@ -468,7 +470,48 @@ class EntityLinker:
         
         return entities
 
-    def get_coordinates(self, entities):
+    def link_to_openstreetmap(self, entities):
+        """Add OpenStreetMap links to addresses."""
+        import requests
+        import time
+        
+        for entity in entities:
+            # Only process ADDRESS entities
+            if entity['type'] != 'ADDRESS':
+                continue
+                
+            try:
+                # Search OpenStreetMap Nominatim for the address
+                url = "https://nominatim.openstreetmap.org/search"
+                params = {
+                    'q': entity['text'],
+                    'format': 'json',
+                    'limit': 1,
+                    'addressdetails': 1
+                }
+                headers = {'User-Agent': 'EntityLinker/1.0'}
+                
+                response = requests.get(url, params=params, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data:
+                        result = data[0]
+                        # Create OpenStreetMap link
+                        lat = result['lat']
+                        lon = result['lon']
+                        entity['openstreetmap_url'] = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=18"
+                        entity['openstreetmap_display_name'] = result['display_name']
+                        
+                        # Also add coordinates
+                        entity['latitude'] = float(lat)
+                        entity['longitude'] = float(lon)
+                        entity['location_name'] = result['display_name']
+                
+                time.sleep(0.2)  # Rate limiting
+            except Exception:
+                pass
+        
+        return entities
         """Add basic coordinate lookup."""
         import requests
         import time
@@ -704,7 +747,7 @@ class StreamlitEntityLinker:
                 # Step 4: Get coordinates (optional for performance)
                 if not config.get('skip_geocoding', False):
                     status_text.text("Getting coordinates...")
-                    progress_bar.progress(90)
+                    progress_bar.progress(85)
                     # Only geocode first 10 entities to avoid timeout
                     place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']][:10]
                     for entity in place_entities:
@@ -717,7 +760,12 @@ class StreamlitEntityLinker:
                             except:
                                 pass  # Skip if geocoding fails
                 
-                # Step 5: Generate visualization
+                # Step 5: Link addresses to OpenStreetMap
+                status_text.text("Linking addresses to OpenStreetMap...")
+                progress_bar.progress(90)
+                entities = self.entity_linker.link_to_openstreetmap(entities)
+                
+                # Step 6: Generate visualization
                 status_text.text("Generating visualization...")
                 progress_bar.progress(100)
                 html_content = self.create_highlighted_html(text, entities)
@@ -774,8 +822,13 @@ class StreamlitEntityLinker:
         
         # Replace entities from end to start
         for entity in sorted_entities:
-            # Only highlight entities that have links
-            if not (entity.get('britannica_url') or entity.get('wikidata_url') or entity.get('openstreetmap_url')):
+            # Highlight entities that have links OR coordinates
+            has_links = (entity.get('britannica_url') or 
+                        entity.get('wikidata_url') or 
+                        entity.get('openstreetmap_url'))
+            has_coordinates = entity.get('latitude') is not None
+            
+            if not (has_links or has_coordinates):
                 continue
                 
             start = entity['start']
@@ -793,7 +846,7 @@ class StreamlitEntityLinker:
             
             tooltip = " | ".join(tooltip_parts)
             
-            # Create highlighted span with link
+            # Create highlighted span with link (priority: Britannica > Wikidata > OpenStreetMap > Coordinates only)
             if entity.get('britannica_url'):
                 url = html_module.escape(entity["britannica_url"])
                 replacement = f'<a href="{url}" style="background-color: {color}; padding: 2px 4px; border-radius: 3px; text-decoration: none; color: black;" target="_blank" title="{tooltip}">{escaped_entity_text}</a>'
@@ -803,6 +856,9 @@ class StreamlitEntityLinker:
             elif entity.get('openstreetmap_url'):
                 url = html_module.escape(entity["openstreetmap_url"])
                 replacement = f'<a href="{url}" style="background-color: {color}; padding: 2px 4px; border-radius: 3px; text-decoration: none; color: black;" target="_blank" title="{tooltip}">{escaped_entity_text}</a>'
+            else:
+                # Just highlight with coordinates (no link)
+                replacement = f'<span style="background-color: {color}; padding: 2px 4px; border-radius: 3px;" title="{tooltip}">{escaped_entity_text}</span>'
             
             # Calculate positions in escaped text
             text_before_entity = html_module.escape(text[:start])
@@ -928,51 +984,6 @@ class StreamlitEntityLinker:
         if entity.get('openstreetmap_url'):
             links.append("OpenStreetMap")
         return " | ".join(links) if links else "No links"
-
-    def render_map(self, entities: List[Dict[str, Any]]):
-        """Render a map visualization of geocoded entities."""
-        geocoded_entities = [e for e in entities if e.get('latitude')]
-        
-        if not geocoded_entities:
-            st.info("No geocoded entities to display on map.")
-            return
-        
-        st.subheader("Geographic Distribution")
-        
-        # Prepare data for map
-        map_data = []
-        for entity in geocoded_entities:
-            map_data.append({
-                'lat': entity['latitude'],
-                'lon': entity['longitude'],
-                'name': entity['text'],
-                'type': entity['type'],
-                'description': entity.get('wikidata_description', ''),
-                'location': entity.get('location_name', '')
-            })
-        
-        df_map = pd.DataFrame(map_data)
-        
-        # Create scatter map
-        fig = px.scatter_mapbox(
-            df_map,
-            lat='lat',
-            lon='lon',
-            hover_name='name',
-            hover_data=['type', 'description'],
-            color='type',
-            size_max=15,
-            zoom=2,
-            mapbox_style='open-street-map',
-            title='Entity Locations'
-        )
-        
-        fig.update_layout(
-            height=500,
-            margin={"r":0,"t":30,"l":0,"b":0}
-        )
-        
-        st.plotly_chart(fig, use_container_width=True)
 
     def render_export_section(self, entities: List[Dict[str, Any]]):
         """Render export options for the results."""
