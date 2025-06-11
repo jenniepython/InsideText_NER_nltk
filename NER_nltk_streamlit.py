@@ -232,41 +232,10 @@ class EntityLinker:
         return entities
 
     def get_coordinates(self, entities):
-        """Add coordinate lookup using OpenStreetMap Nominatim."""
-        import requests
-        import time
-    
-        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
-    
-        for entity in entities:
-            if entity['type'] in place_types:
-                try:
-                    url = "https://nominatim.openstreetmap.org/search"
-                    params = {
-                        'q': entity['text'],
-                        'format': 'json',
-                        'limit': 1
-                    }
-                    headers = {'User-Agent': 'EntityLinker/1.0'}
-                
-                    response = requests.get(url, params=params, headers=headers, timeout=5)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data:
-                            result = data[0]
-                            entity['latitude'] = float(result['lat'])
-                            entity['longitude'] = float(result['lon'])
-                            entity['location_name'] = result['display_name']
-                
-                    time.sleep(0.2)  # Rate limiting
-                except Exception:
-                    pass  # Continue if geocoding fails
-    
-        return entities
 
     def _is_valid_entity(self, entity_text: str, entity_type: str, 
                        pos_tags, entity_start_word_index: int, tokens) -> bool:
-        """Validate an entity by analysing its grammatical context."""
+        """Validate an entity by analyzing its grammatical context."""
         # Skip very short entities
         if len(entity_text.strip()) <= 1:
             return False
@@ -963,19 +932,19 @@ class StreamlitEntityLinker:
             st.metric("Entity Types", unique_types)
         
         # Entity type distribution
-#        if entities:
-#            entity_counts = {}
-#            for entity in entities:
-#                entity_counts[entity['type']] = entity_counts.get(entity['type'], 0) + 1
+        if entities:
+            entity_counts = {}
+            for entity in entities:
+                entity_counts[entity['type']] = entity_counts.get(entity['type'], 0) + 1
             
             # Create pie chart
-#            fig = px.pie(
-#                values=list(entity_counts.values()),
-#                names=list(entity_counts.keys()),
-#                title="Entity Type Distribution"
-#            )
-#            fig.update_traces(textposition='inside', textinfo='percent+label')
-#            st.plotly_chart(fig, use_container_width=True)
+            fig = px.pie(
+                values=list(entity_counts.values()),
+                names=list(entity_counts.keys()),
+                title="Entity Type Distribution"
+            )
+            fig.update_traces(textposition='inside', textinfo='percent+label')
+            st.plotly_chart(fig, use_container_width=True)
 
     def render_entity_table(self, entities: List[Dict[str, Any]], config: Dict[str, Any]):
         """Render a table of entity details."""
@@ -1023,23 +992,69 @@ class StreamlitEntityLinker:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # JSON export
+            # JSON export - create JSON-LD format
             json_data = {
+                "@context": "http://schema.org/",
+                "@type": "TextDigitalDocument",
+                "text": st.session_state.processed_text,
+                "dateCreated": str(pd.Timestamp.now().isoformat()),
                 "title": st.session_state.analysis_title,
-                "entities": entities,
-                "metadata": {
-                    "total_entities": len(entities),
-                    "processed_at": str(pd.Timestamp.now()),
-                    "entity_types": list(set(e['type'] for e in entities))
-                }
+                "entities": []
             }
+            
+            # Format entities for JSON-LD
+            for entity in entities:
+                entity_data = {
+                    "name": entity['text'],
+                    "type": entity['type'],
+                    "startOffset": entity['start'],
+                    "endOffset": entity['end']
+                }
+                
+                if entity.get('wikidata_url'):
+                    entity_data['sameAs'] = entity['wikidata_url']
+                
+                if entity.get('wikidata_description'):
+                    entity_data['description'] = entity['wikidata_description']
+                elif entity.get('britannica_title'):
+                    entity_data['description'] = entity['britannica_title']
+                
+                if entity.get('latitude') and entity.get('longitude'):
+                    entity_data['geo'] = {
+                        "@type": "GeoCoordinates",
+                        "latitude": entity['latitude'],
+                        "longitude": entity['longitude']
+                    }
+                    if entity.get('location_name'):
+                        entity_data['geo']['name'] = entity['location_name']
+                
+                if entity.get('britannica_url'):
+                    if 'sameAs' in entity_data:
+                        if isinstance(entity_data['sameAs'], str):
+                            entity_data['sameAs'] = [entity_data['sameAs'], entity['britannica_url']]
+                        else:
+                            entity_data['sameAs'].append(entity['britannica_url'])
+                    else:
+                        entity_data['sameAs'] = entity['britannica_url']
+                
+                if entity.get('openstreetmap_url'):
+                    if 'sameAs' in entity_data:
+                        if isinstance(entity_data['sameAs'], str):
+                            entity_data['sameAs'] = [entity_data['sameAs'], entity['openstreetmap_url']]
+                        else:
+                            entity_data['sameAs'].append(entity['openstreetmap_url'])
+                    else:
+                        entity_data['sameAs'] = entity['openstreetmap_url']
+                
+                json_data['entities'].append(entity_data)
+            
             json_str = json.dumps(json_data, indent=2, ensure_ascii=False)
             
             st.download_button(
-                label="Download JSON",
+                label="Download JSON-LD",
                 data=json_str,
-                file_name=f"{st.session_state.analysis_title}_entities.json",
-                mime="application/json"
+                file_name=f"{st.session_state.analysis_title}_entities.jsonld",
+                mime="application/ld+json"
             )
         
         with col2:
