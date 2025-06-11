@@ -12,7 +12,7 @@ Version: 1.0
 
 import streamlit as st
 
-# Optional authentication - only if config.yaml exists
+# Authentication is REQUIRED - do not run app without proper login
 try:
     import streamlit_authenticator as stauth
     import yaml
@@ -20,38 +20,67 @@ try:
     import os
     
     # Check if config file exists
-    if os.path.exists('config.yaml'):
-        # Load configuration
-        with open('config.yaml') as file:
-            config = yaml.load(file, Loader=SafeLoader)
+    if not os.path.exists('config.yaml'):
+        st.error("🔒 Authentication required: config.yaml file not found!")
+        st.info("Please ensure config.yaml is in the same directory as this app.")
+        st.stop()
+    
+    # Load configuration
+    with open('config.yaml') as file:
+        config = yaml.load(file, Loader=SafeLoader)
 
-        # Setup authentication
-        authenticator = stauth.Authenticate(
-            config['credentials'],
-            config['cookie']['name'],
-            config['cookie']['key'],
-            config['cookie']['expiry_days']
-        )
+    # Setup authentication
+    authenticator = stauth.Authenticate(
+        config['credentials'],
+        config['cookie']['name'],
+        config['cookie']['key'],
+        config['cookie']['expiry_days']
+    )
 
-        name, auth_status, username = authenticator.login(location='main')
-
-        if auth_status == False:
-            st.error("Username/password is incorrect")
+    # Handle different versions of streamlit-authenticator
+    try:
+        login_result = authenticator.login(location='main')
+        
+        # Check if login_result is None (newer versions might behave differently)
+        if login_result is None:
+            st.warning("🔐 Please log in to continue")
             st.stop()
-        elif auth_status == None:
-            st.warning("Please enter your username and password")
+        
+        # Try to unpack the result
+        if isinstance(login_result, tuple) and len(login_result) == 3:
+            name, auth_status, username = login_result
+        else:
+            # Handle case where return format is different
+            st.error("🔒 Authentication system error - unexpected login result format")
             st.stop()
-        elif auth_status:
-            authenticator.logout("Logout", "sidebar")
-            st.sidebar.success(f"Welcome *{name}*")
+            
+    except Exception as login_error:
+        st.error(f"🔒 Login system error: {login_error}")
+        st.stop()
+
+    # Check authentication status
+    if auth_status == False:
+        st.error("🚫 Username/password is incorrect")
+        st.stop()
+    elif auth_status == None:
+        st.warning("🔐 Please enter your username and password to continue")
+        st.stop()
+    elif auth_status == True:
+        authenticator.logout("Logout", "sidebar")
+        st.sidebar.success(f"Welcome *{name}*!")
+        # Continue to app below...
     else:
-        st.info("No authentication configured - running in open mode")
+        st.error("🔒 Authentication status unknown")
+        st.stop()
         
 except ImportError:
-    st.warning("streamlit-authenticator not installed - running without authentication")
+    st.error("🔒 Authentication required: streamlit-authenticator not installed!")
+    st.info("Please install streamlit-authenticator to access this application.")
+    st.stop()
 except Exception as e:
-    st.error(f"Authentication error: {e}")
-    st.info("Running without authentication")
+    st.error(f"🔒 Authentication error: {e}")
+    st.info("Cannot proceed without proper authentication.")
+    st.stop()
 
 import streamlit.components.v1 as components
 import pandas as pd
@@ -64,29 +93,12 @@ from typing import List, Dict, Any
 import sys
 import os
 
-# Import our entity linker
+# Import our entity linker - assuming entity_linker.py exists alongside this file
 try:
     from entity_linker import EntityLinker
 except ImportError:
     st.error("entity_linker.py not found! Please ensure it's in the same directory as this file.")
-    st.stop()
-
-
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import json
-import io
-import base64
-from typing import List, Dict, Any
-import sys
-import os
-
-# Import our entity linker
-try:
-    from entity_linker import EntityLinker
-except ImportError:
-    st.error("entity_linker.py not found! Please ensure it's in the same directory as this file.")
+    st.info("This app requires the EntityLinker class from entity_linker.py to function.")
     st.stop()
 
 
@@ -141,6 +153,8 @@ class StreamlitEntityLinker:
         entities = json.loads(entities_json)
         linked_entities = _self.entity_linker.link_to_britannica(entities)
         return json.dumps(linked_entities)
+
+    def render_header(self):
         """Render the application header."""
         st.title("Entity Linker")
         st.markdown("""
