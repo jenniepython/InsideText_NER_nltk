@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+def render_header(self):#!/usr/bin/env python3
 """
 Streamlit Entity Linker Application
 
@@ -11,47 +11,48 @@ Version: 1.0
 """
 
 import streamlit as st
-import streamlit_authenticator as stauth
-import yaml
-from yaml.loader import SafeLoader
 
-# Load configuration
-with open('config.yaml') as file:
-    config = yaml.load(file, Loader=SafeLoader)
+# Optional authentication - only if config.yaml exists
+try:
+    import streamlit_authenticator as stauth
+    import yaml
+    from yaml.loader import SafeLoader
+    import os
+    
+    # Check if config file exists
+    if os.path.exists('config.yaml'):
+        # Load configuration
+        with open('config.yaml') as file:
+            config = yaml.load(file, Loader=SafeLoader)
 
-# Setup authentication
-authenticator = stauth.Authenticate(
-    config['credentials'],
-    config['cookie']['name'],
-    config['cookie']['key'],
-    config['cookie']['expiry_days']
-)
+        # Setup authentication
+        authenticator = stauth.Authenticate(
+            config['credentials'],
+            config['cookie']['name'],
+            config['cookie']['key'],
+            config['cookie']['expiry_days']
+        )
 
-name, auth_status, username = authenticator.login(location='main')
+        name, auth_status, username = authenticator.login(location='main')
 
-if auth_status:
-    authenticator.logout("Logout", "sidebar")
-    st.sidebar.success(f"Welcome *{name}*")
-    st.write("This is your secure app content.")
-elif auth_status is False:
-    st.error("Incorrect username or password.")
-elif auth_status is None:
-    st.warning("Please log in to continue.")
-    st.stop()
+        if auth_status == False:
+            st.error("Username/password is incorrect")
+            st.stop()
+        elif auth_status == None:
+            st.warning("Please enter your username and password")
+            st.stop()
+        elif auth_status:
+            authenticator.logout("Logout", "sidebar")
+            st.sidebar.success(f"Welcome *{name}*")
+    else:
+        st.info("No authentication configured - running in open mode")
+        
+except ImportError:
+    st.warning("streamlit-authenticator not installed - running without authentication")
+except Exception as e:
+    st.error(f"Authentication error: {e}")
+    st.info("Running without authentication")
 
-#!/usr/bin/env python3
-"""
-Streamlit Entity Linker Application
-
-A web interface for the Entity Linker using Streamlit.
-This application provides an easy-to-use interface for entity extraction,
-linking, and visualization.
-
-Author: Based on entity_linker.py
-Version: 1.0
-"""
-
-import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
@@ -99,8 +100,29 @@ class StreamlitEntityLinker:
             st.session_state.html_content = ""
         if 'analysis_title' not in st.session_state:
             st.session_state.analysis_title = "text_analysis"
+        if 'last_processed_hash' not in st.session_state:
+            st.session_state.last_processed_hash = ""
 
-    def render_header(self):
+    @st.cache_data
+    def cached_extract_entities(_self, text: str) -> List[Dict[str, Any]]:
+        """Cached entity extraction to avoid reprocessing same text."""
+        return _self.entity_linker.extract_entities(text)
+    
+    @st.cache_data  
+    def cached_link_to_wikidata(_self, entities_json: str) -> str:
+        """Cached Wikidata linking."""
+        import json
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_wikidata(entities)
+        return json.dumps(linked_entities)
+    
+    @st.cache_data
+    def cached_link_to_britannica(_self, entities_json: str) -> str:
+        """Cached Britannica linking."""
+        import json
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_britannica(entities)
+        return json.dumps(linked_entities)
         """Render the application header."""
         st.title("Entity Linker")
         st.markdown("""
@@ -136,11 +158,20 @@ class StreamlitEntityLinker:
         st.sidebar.subheader("Entity Linking")
         st.sidebar.info("Entities are linked to Wikidata first, then Britannica as fallback. Addresses are linked to OpenStreetMap.")
         
+        # Performance options
+        st.sidebar.subheader("Performance Options")
+        skip_geocoding = st.sidebar.checkbox("Skip geocoding (faster)", False,
+                                           help="Skip coordinate lookup to speed up processing")
+        limit_entities = st.sidebar.checkbox("Limit to 20 entities", False,
+                                           help="Process only first 20 entities for faster results")
+        
         return {
             'selected_types': selected_types,
             'show_coordinates': show_coordinates,
             'show_descriptions': show_descriptions,
-            'show_statistics': show_statistics
+            'show_statistics': show_statistics,
+            'skip_geocoding': skip_geocoding,
+            'limit_entities': limit_entities
         }
 
     def render_input_section(self):
@@ -197,7 +228,7 @@ class StreamlitEntityLinker:
 
     def process_text(self, text: str, title: str, config: Dict[str, Any]):
         """
-        Process the input text using the EntityLinker.
+        Process the input text using the EntityLinker with optimization.
         
         Args:
             text: Input text to process
@@ -207,32 +238,61 @@ class StreamlitEntityLinker:
             st.warning("Please enter some text to analyze.")
             return
         
+        # Check if we've already processed this exact text
+        import hashlib
+        text_hash = hashlib.md5(text.encode()).hexdigest()
+        
+        if text_hash == st.session_state.last_processed_hash:
+            st.info("This text has already been processed. Results shown below.")
+            return
+        
         with st.spinner("Processing text and extracting entities..."):
             try:
                 # Create a progress bar for the different steps
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
-                # Step 1: Extract entities
+                # Step 1: Extract entities (cached)
                 status_text.text("Extracting entities...")
-                progress_bar.progress(20)
-                entities = self.entity_linker.extract_entities(text)
+                progress_bar.progress(25)
+                entities = self.cached_extract_entities(text)
                 
-                # Step 2: Link to external sources (always both)
+                # Limit entities if requested for performance
+                if config.get('limit_entities', False):
+                    entities = entities[:20]
+                    st.info("Limited to first 20 entities for faster processing.")
+                
+                # Step 2: Link to Wikidata (cached)
                 status_text.text("Linking to Wikidata...")
-                progress_bar.progress(40)
-                entities = self.entity_linker.link_to_wikidata(entities)
+                progress_bar.progress(50)
+                entities_json = json.dumps(entities, default=str)  # Handle non-serializable objects
+                linked_entities_json = self.cached_link_to_wikidata(entities_json)
+                entities = json.loads(linked_entities_json)
                 
+                # Step 3: Link to Britannica (cached)
                 status_text.text("Linking to Britannica...")
-                progress_bar.progress(60)
-                entities = self.entity_linker.link_to_britannica(entities)
+                progress_bar.progress(75)
+                entities_json = json.dumps(entities, default=str)  # Handle non-serializable objects
+                linked_entities_json = self.cached_link_to_britannica(entities_json)
+                entities = json.loads(linked_entities_json)
                 
-                # Step 3: Get coordinates
-                status_text.text("Getting coordinates...")
-                progress_bar.progress(80)
-                entities = self.entity_linker.get_coordinates(entities)
+                # Step 4: Get coordinates (optional for performance)
+                if not config.get('skip_geocoding', False):
+                    status_text.text("Getting coordinates...")
+                    progress_bar.progress(90)
+                    # Only geocode first 10 entities to avoid timeout
+                    place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']][:10]
+                    for entity in place_entities:
+                        if entity in entities:
+                            idx = entities.index(entity)
+                            try:
+                                geocoded = self.entity_linker.get_coordinates([entity])
+                                if geocoded and geocoded[0].get('latitude'):
+                                    entities[idx] = geocoded[0]
+                            except:
+                                pass  # Skip if geocoding fails
                 
-                # Step 4: Generate visualization
+                # Step 5: Generate visualization
                 status_text.text("Generating visualization...")
                 progress_bar.progress(100)
                 html_content = self.create_highlighted_html(text, entities)
@@ -242,12 +302,16 @@ class StreamlitEntityLinker:
                 st.session_state.processed_text = text
                 st.session_state.html_content = html_content
                 st.session_state.analysis_title = title
+                st.session_state.last_processed_hash = text_hash
                 
                 # Clear progress indicators
                 progress_bar.empty()
                 status_text.empty()
                 
                 st.success(f"Processing complete! Found {len(entities)} entities.")
+                
+                if config.get('skip_geocoding', False):
+                    st.info("Geocoding was skipped for faster processing.")
                 
             except Exception as e:
                 st.error(f"Error processing text: {e}")
@@ -589,10 +653,23 @@ class StreamlitEntityLinker:
             # Input section
             text_input, analysis_title = self.render_input_section()
             
+            # Performance notice
+            st.info("💡 Tip: Use performance options in sidebar to speed up processing for large texts.")
+            
             # Process button
             if st.button("Process Text", type="primary", use_container_width=True):
                 if text_input.strip():
                     self.process_text(text_input, analysis_title, config)
+                else:
+                    st.warning("Please enter some text to analyze.")
+            
+            # Quick process button for fast results
+            if st.button("Quick Process (No Geocoding)", type="secondary", use_container_width=True):
+                if text_input.strip():
+                    quick_config = config.copy()
+                    quick_config['skip_geocoding'] = True
+                    quick_config['limit_entities'] = True
+                    self.process_text(text_input, analysis_title, quick_config)
                 else:
                     st.warning("Please enter some text to analyze.")
         
