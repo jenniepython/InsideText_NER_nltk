@@ -73,6 +73,25 @@ except ImportError:
 
 
 class StreamlitEntityLinker:
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import json
+import io
+import base64
+from typing import List, Dict, Any
+import sys
+import os
+
+# Import our entity linker
+try:
+    from entity_linker import EntityLinker
+except ImportError:
+    st.error("entity_linker.py not found! Please ensure it's in the same directory as this file.")
+    st.stop()
+
+
+class StreamlitEntityLinker:
     """
     Streamlit wrapper for the EntityLinker class.
     
