@@ -1,0 +1,10 @@
+credentials:
+  usernames:
+    demo_user:
+      email: demo@example.com
+      name: Demo User
+      password: "$2b$12$R8DYvuBnUGtA9Zf.X5aeFekmFQlMfU/1UOR.Nq34pm3phG75C/tgC"  # password123
+cookie:
+  name: streamlit_auth
+  key: secret_cookie_key_abc123
+  expiry_days: 1
