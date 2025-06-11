@@ -224,17 +224,103 @@ class EntityLinker:
 
     def link_to_wikidata(self, entities):
         """Add basic Wikidata linking."""
-        # Simplified version - you can expand this
+        import requests
+        import time
+        
+        for entity in entities:
+            try:
+                url = "https://www.wikidata.org/w/api.php"
+                params = {
+                    'action': 'wbsearchentities',
+                    'format': 'json',
+                    'search': entity['text'],
+                    'language': 'en',
+                    'limit': 1,
+                    'type': 'item'
+                }
+                
+                response = requests.get(url, params=params, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('search') and len(data['search']) > 0:
+                        result = data['search'][0]
+                        entity['wikidata_url'] = f"http://www.wikidata.org/entity/{result['id']}"
+                        entity['wikidata_description'] = result.get('description', '')
+                
+                time.sleep(0.1)  # Rate limiting
+            except Exception:
+                pass  # Continue if API call fails
+        
         return entities
 
     def link_to_britannica(self, entities):
         """Add basic Britannica linking.""" 
-        # Simplified version - you can expand this
+        import requests
+        import re
+        import time
+        
+        for entity in entities:
+            # Skip if already has Wikidata link
+            if entity.get('wikidata_url'):
+                continue
+                
+            try:
+                search_url = "https://www.britannica.com/search"
+                params = {'query': entity['text']}
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                
+                response = requests.get(search_url, params=params, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    # Look for article links
+                    pattern = r'href="(/topic/[^"]*)"[^>]*>([^<]*)</a>'
+                    matches = re.findall(pattern, response.text)
+                    
+                    for url_path, link_text in matches:
+                        if (entity['text'].lower() in link_text.lower() or 
+                            link_text.lower() in entity['text'].lower()):
+                            entity['britannica_url'] = f"https://www.britannica.com{url_path}"
+                            entity['britannica_title'] = link_text.strip()
+                            break
+                
+                time.sleep(0.3)  # Rate limiting
+            except Exception:
+                pass
+        
         return entities
 
     def get_coordinates(self, entities):
         """Add basic coordinate lookup."""
-        # Simplified version - you can expand this
+        import requests
+        import time
+        
+        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
+        
+        for entity in entities:
+            if entity['type'] in place_types:
+                try:
+                    url = "https://nominatim.openstreetmap.org/search"
+                    params = {
+                        'q': entity['text'],
+                        'format': 'json',
+                        'limit': 1
+                    }
+                    headers = {'User-Agent': 'EntityLinker/1.0'}
+                    
+                    response = requests.get(url, params=params, headers=headers, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data:
+                            result = data[0]
+                            entity['latitude'] = float(result['lat'])
+                            entity['longitude'] = float(result['lon'])
+                            entity['location_name'] = result['display_name']
+                    
+                    time.sleep(0.2)  # Rate limiting
+                except Exception:
+                    pass
+        
         return entities
 
 
