@@ -183,11 +183,11 @@ class EntityLinker:
         st.success("NLTK data packages downloaded successfully!")
 
     def extract_entities(self, text: str):
-        """Extract named entities from text using NLTK."""
+        """Extract named entities from text using NLTK with proper validation."""
         from nltk import ne_chunk, pos_tag, word_tokenize
         from nltk.tree import Tree
         
-        # Simple entity extraction - you can expand this
+        # Step 1: Tokenize and POS tag the text
         tokens = word_tokenize(text)
         pos_tags = pos_tag(tokens)
         tree = ne_chunk(pos_tags)
@@ -195,32 +195,210 @@ class EntityLinker:
         entities = []
         word_index = 0
         
+        # Step 2: Extract traditional named entities with validation
         for subtree in tree:
             if isinstance(subtree, Tree):
                 entity_tokens = [token for token, pos in subtree.leaves()]
                 entity_text = ' '.join(entity_tokens)
                 entity_label = subtree.label()
                 
-                # Skip unwanted types
+                # Filter out unwanted entity types
                 if entity_label in ['TIME', 'MONEY', 'PERCENT', 'DATE']:
                     word_index += len(entity_tokens)
                     continue
                 
-                # Find position in text
-                start_pos = text.find(entity_text)
-                if start_pos != -1:
-                    entities.append({
-                        'text': entity_text,
-                        'type': entity_label,
-                        'start': start_pos,
-                        'end': start_pos + len(entity_text)
-                    })
+                # Validate entity using grammatical context
+                if self._is_valid_entity(entity_text, entity_label, pos_tags, word_index, tokens):
+                    start_pos = text.find(entity_text)
+                    if start_pos != -1:
+                        entities.append({
+                            'text': entity_text,
+                            'type': entity_label,
+                            'start': start_pos,
+                            'end': start_pos + len(entity_text)
+                        })
                 
                 word_index += len(entity_tokens)
             else:
                 word_index += 1
         
+        # Step 3: Extract addresses
+        addresses = self._extract_addresses(text)
+        entities.extend(addresses)
+        
+        # Step 4: Remove overlapping entities
+        entities = self._remove_overlapping_entities(entities)
+        
         return entities
+
+    def _is_valid_entity(self, entity_text: str, entity_type: str, 
+                       pos_tags, entity_start_word_index: int, tokens) -> bool:
+        """Validate an entity by analyzing its grammatical context."""
+        # Skip very short entities
+        if len(entity_text.strip()) <= 1:
+            return False
+        
+        # Get the POS tag for this entity
+        if entity_start_word_index >= len(pos_tags):
+            return True  # Default to valid if we can't find the position
+        
+        word_pos = pos_tags[entity_start_word_index][1]
+        entity_word = pos_tags[entity_start_word_index][0]
+        
+        # Define grammatical categories to filter out
+        verb_tags = ['VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ']
+        adjective_tags = ['JJ', 'JJR', 'JJS']
+        
+        # Filter out words functioning as verbs or adjectives
+        if word_pos in verb_tags or word_pos in adjective_tags or word_pos == 'MD':
+            return False
+        
+        # Special handling for sentence-start words (capitalization bias)
+        if self._is_sentence_start(tokens, entity_start_word_index):
+            return self._validate_sentence_start_entity(
+                entity_word, entity_type, pos_tags, 
+                entity_start_word_index, verb_tags, adjective_tags
+            )
+        
+        # Additional validation for specific entity types
+        if entity_type == 'PERSON':
+            return self._validate_person_entity(pos_tags, entity_start_word_index, word_pos)
+        
+        if entity_type in ['GPE', 'LOCATION', 'FACILITY']:
+            return self._validate_place_entity(pos_tags, entity_start_word_index, word_pos)
+        
+        # Prefer proper nouns as they're more likely to be real entities
+        if word_pos in ['NNP', 'NNPS']:
+            return True
+        
+        return True
+
+    def _is_sentence_start(self, tokens, word_index: int) -> bool:
+        """Check if a word is at the beginning of a sentence."""
+        if word_index == 0:
+            return True
+        
+        # Look back for sentence ending punctuation
+        for i in range(word_index - 1, -1, -1):
+            token = tokens[i]
+            if token in ['.', '!', '?']:
+                return True
+            elif token.isalpha():  # Found a word before any punctuation
+                return False
+        
+        return True  # If we only found punctuation/symbols, it's sentence start
+
+    def _validate_sentence_start_entity(self, entity_word: str, entity_type: str,
+                                      pos_tags, entity_start_word_index: int,
+                                      verb_tags, adjective_tags) -> bool:
+        """Validate entities that appear at sentence start."""
+        try:
+            from nltk import pos_tag
+            # Check POS tag of lowercase version
+            lowercase_tagged = pos_tag([entity_word.lower()])
+            natural_pos = lowercase_tagged[0][1]
+            
+            # Filter out words that would naturally be adjectives/verbs/modals
+            if natural_pos in adjective_tags + verb_tags + ['MD']:
+                return False
+            
+            # Check for verb patterns in context
+            if entity_start_word_index < len(pos_tags) - 1:
+                next_word, next_pos = pos_tags[entity_start_word_index + 1]
+                
+                # Patterns suggesting verb usage
+                if next_pos in ['RB', 'RBR', 'RBS', 'IN', 'TO']:  # followed by adverbs/prepositions
+                    return False
+                
+                # For PERSON: if followed by nouns, could be adjective
+                if entity_type == 'PERSON' and next_pos.startswith('NN'):
+                    return False
+                    
+        except Exception:
+            pass  # If tagging fails, continue with other checks
+        
+        return True
+
+    def _validate_person_entity(self, pos_tags, entity_start_word_index: int, word_pos: str) -> bool:
+        """Additional validation for PERSON entities."""
+        # Check context patterns
+        if entity_start_word_index < len(pos_tags) - 1:
+            next_word, next_pos = pos_tags[entity_start_word_index + 1]
+            # If followed by plural nouns, likely an adjective
+            if next_pos in ['NNS', 'NNPS']:
+                return False
+        
+        # Check previous word context
+        if entity_start_word_index > 0:
+            prev_word, prev_pos = pos_tags[entity_start_word_index - 1]
+            
+            # If preceded by modal verbs or auxiliaries, likely not a person
+            if prev_pos in ['MD', 'VBZ', 'VBP', 'VBD']:
+                return False
+            
+            # If preceded by articles and not proper noun, less likely to be person
+            if prev_pos == 'DT' and word_pos not in ['NNP', 'NNPS']:
+                return False
+        
+        return True
+
+    def _validate_place_entity(self, pos_tags, entity_start_word_index: int, word_pos: str) -> bool:
+        """Additional validation for place entities."""
+        # Check for adjectival usage (e.g., "March weather")
+        if entity_start_word_index < len(pos_tags) - 1:
+            next_word, next_pos = pos_tags[entity_start_word_index + 1]
+            
+            # If followed by noun and not proper noun, likely adjectival
+            if next_pos.startswith('NN') and word_pos not in ['NNP', 'NNPS']:
+                return False
+        
+        return True
+
+    def _extract_addresses(self, text: str):
+        """Extract address patterns that NER might miss."""
+        import re
+        addresses = []
+        
+        # Patterns for different address formats
+        address_patterns = [
+            r'\b\d{1,4}[-–]\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Lane|Drive|Way|Place|Square|Gardens)\b',
+            r'\b\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Lane|Drive|Way|Place|Square|Gardens)\b'
+        ]
+        
+        for pattern in address_patterns:
+            for match in re.finditer(pattern, text):
+                addresses.append({
+                    'text': match.group(),
+                    'type': 'ADDRESS',
+                    'start': match.start(),
+                    'end': match.end()
+                })
+        
+        return addresses
+
+    def _remove_overlapping_entities(self, entities):
+        """Remove overlapping entities, keeping the longest ones."""
+        entities.sort(key=lambda x: x['start'])
+        
+        filtered = []
+        for entity in entities:
+            overlaps = False
+            for existing in filtered[:]:  # Create a copy to safely modify during iteration
+                # Check if entities overlap
+                if (entity['start'] < existing['end'] and entity['end'] > existing['start']):
+                    # If current entity is longer, remove the existing one
+                    if len(entity['text']) > len(existing['text']):
+                        filtered.remove(existing)
+                        break
+                    else:
+                        # Current entity is shorter, skip it
+                        overlaps = True
+                        break
+            
+            if not overlaps:
+                filtered.append(entity)
+        
+        return filtered
 
     def link_to_wikidata(self, entities):
         """Add basic Wikidata linking."""
@@ -660,18 +838,17 @@ class StreamlitEntityLinker:
         
         # Highlighted text
         st.subheader("Highlighted Text")
-        st.markdown(
-            f'<div style="background: white; padding: 20px; border: 1px solid #ddd; border-radius: 5px; line-height: 1.6;">{st.session_state.html_content}</div>',
-            unsafe_allow_html=True
-        )
+        if st.session_state.html_content:
+            st.markdown(
+                st.session_state.html_content,
+                unsafe_allow_html=True
+            )
+        else:
+            st.info("No highlighted text available. Process some text first.")
         
         # Entity details
         st.subheader("Entity Details")
         self.render_entity_table(filtered_entities, config)
-        
-        # Map visualization
-        if config['show_coordinates']:
-            self.render_map(filtered_entities)
         
         # Export options
         self.render_export_section(filtered_entities)
