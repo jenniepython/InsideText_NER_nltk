@@ -21,7 +21,7 @@ try:
     
     # Check if config file exists
     if not os.path.exists('config.yaml'):
-        st.error("🔒 Authentication required: config.yaml file not found!")
+        st.error("Authentication required: config.yaml file not found!")
         st.info("Please ensure config.yaml is in the same directory as this app.")
         st.stop()
     
@@ -43,7 +43,7 @@ try:
         
         # Check if login_result is None (newer versions might behave differently)
         if login_result is None:
-            st.warning("🔐 Please log in to continue")
+            st.warning("Please log in to continue")
             st.stop()
         
         # Try to unpack the result
@@ -51,34 +51,37 @@ try:
             name, auth_status, username = login_result
         else:
             # Handle case where return format is different
-            st.error("🔒 Authentication system error - unexpected login result format")
+            st.error("Authentication system error - unexpected login result format")
             st.stop()
             
     except Exception as login_error:
-        st.error(f"🔒 Login system error: {login_error}")
+        st.error(f"Login system error: {login_error}")
         st.stop()
 
     # Check authentication status
     if auth_status == False:
-        st.error("🚫 Username/password is incorrect")
+        st.error("Username/password is incorrect")
+        st.info("Debug: Authentication explicitly failed")
         st.stop()
     elif auth_status == None:
-        st.warning("🔐 Please enter your username and password to continue")
+        st.warning("Please enter your username and password to continue")
+        st.info("Debug: No authentication attempt yet")
         st.stop()
     elif auth_status == True:
         authenticator.logout("Logout", "sidebar")
         st.sidebar.success(f"Welcome *{name}*!")
+        st.success(f"Successfully logged in as {name}")
         # Continue to app below...
     else:
-        st.error("🔒 Authentication status unknown")
+        st.error(f"Authentication status unknown: {auth_status}")
         st.stop()
         
 except ImportError:
-    st.error("🔒 Authentication required: streamlit-authenticator not installed!")
+    st.error("Authentication required: streamlit-authenticator not installed!")
     st.info("Please install streamlit-authenticator to access this application.")
     st.stop()
 except Exception as e:
-    st.error(f"🔒 Authentication error: {e}")
+    st.error(f"Authentication error: {e}")
     st.info("Cannot proceed without proper authentication.")
     st.stop()
 
@@ -686,7 +689,7 @@ class StreamlitEntityLinker:
             text_input, analysis_title = self.render_input_section()
             
             # Performance notice
-            st.info("💡 Tip: Use performance options in sidebar to speed up processing for large texts.")
+            st.info("Tip: Use performance options in sidebar to speed up processing for large texts.")
             
             # Process button
             if st.button("Process Text", type="primary", use_container_width=True):
