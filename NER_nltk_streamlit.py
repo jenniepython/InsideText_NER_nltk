@@ -232,37 +232,37 @@ class EntityLinker:
         return entities
 
     def get_coordinates(self, entities):
-    """Add coordinate lookup using OpenStreetMap Nominatim."""
-    import requests
-    import time
+        """Add coordinate lookup using OpenStreetMap Nominatim."""
+        import requests
+        import time
     
-    place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
+        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
     
-    for entity in entities:
-        if entity['type'] in place_types:
-            try:
-                url = "https://nominatim.openstreetmap.org/search"
-                params = {
-                    'q': entity['text'],
-                    'format': 'json',
-                    'limit': 1
-                }
-                headers = {'User-Agent': 'EntityLinker/1.0'}
+        for entity in entities:
+            if entity['type'] in place_types:
+                try:
+                    url = "https://nominatim.openstreetmap.org/search"
+                    params = {
+                        'q': entity['text'],
+                        'format': 'json',
+                        'limit': 1
+                    }
+                    headers = {'User-Agent': 'EntityLinker/1.0'}
                 
-                response = requests.get(url, params=params, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data:
-                        result = data[0]
-                        entity['latitude'] = float(result['lat'])
-                        entity['longitude'] = float(result['lon'])
-                        entity['location_name'] = result['display_name']
+                    response = requests.get(url, params=params, headers=headers, timeout=5)
+                    if response.status_code == 200:
+                        data = response.json()
+                        if data:
+                            result = data[0]
+                            entity['latitude'] = float(result['lat'])
+                            entity['longitude'] = float(result['lon'])
+                            entity['location_name'] = result['display_name']
                 
-                time.sleep(0.2)  # Rate limiting
-            except Exception:
-                pass  # Continue if geocoding fails
+                    time.sleep(0.2)  # Rate limiting
+                except Exception:
+                    pass  # Continue if geocoding fails
     
-    return entities
+        return entities
 
     def _is_valid_entity(self, entity_text: str, entity_type: str, 
                        pos_tags, entity_start_word_index: int, tokens) -> bool:
