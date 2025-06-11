@@ -963,19 +963,19 @@ class StreamlitEntityLinker:
             st.metric("Entity Types", unique_types)
         
         # Entity type distribution
-        if entities:
-            entity_counts = {}
-            for entity in entities:
-                entity_counts[entity['type']] = entity_counts.get(entity['type'], 0) + 1
+#        if entities:
+#            entity_counts = {}
+#            for entity in entities:
+#                entity_counts[entity['type']] = entity_counts.get(entity['type'], 0) + 1
             
             # Create pie chart
-            fig = px.pie(
-                values=list(entity_counts.values()),
-                names=list(entity_counts.keys()),
-                title="Entity Type Distribution"
-            )
-            fig.update_traces(textposition='inside', textinfo='percent+label')
-            st.plotly_chart(fig, use_container_width=True)
+#                values=list(entity_counts.values()),
+#            fig = px.pie(
+#                names=list(entity_counts.keys()),
+#                title="Entity Type Distribution"
+#            )
+#            fig.update_traces(textposition='inside', textinfo='percent+label')
+#            st.plotly_chart(fig, use_container_width=True)
 
     def render_entity_table(self, entities: List[Dict[str, Any]], config: Dict[str, Any]):
         """Render a table of entity details."""
