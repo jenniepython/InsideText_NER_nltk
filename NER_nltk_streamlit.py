@@ -42,7 +42,7 @@ try:
     )
 
     # Always render the login form
-    name, auth_status, username = authenticator.login('Login', 'main')
+    name, auth_status, username = authenticator.login(form_name='Login', location='main')
 
     # Debug: Show authentication result
     st.write(f"Debug - Auth status: {auth_status}")
