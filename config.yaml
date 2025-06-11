@@ -3,7 +3,7 @@ credentials:
     demo_user:
       email: demo@example.com
       name: Demo User
-      password: "$2b$12$R8DYvuBnUGtA9Zf.X5aeFekmFQlMfU/1UOR.Nq34pm3phG75C/tgC"  # password123
+      password: "$2b$12$ays96g56VZmTKK7ul9g0/OuuMlLdJavqcBSqZimD37A29YIKcvC52" 
 cookie:
   name: streamlit_auth
   key: secret_cookie_key_abc123
