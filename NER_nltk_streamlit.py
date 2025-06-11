@@ -156,22 +156,26 @@ class EntityLinker:
         # Updated NLTK data requirements for newer versions
         required_downloads = [
             'punkt_tab',  # Updated tokenizer
-            'averaged_perceptron_tagger',
+            'averaged_perceptron_tagger_eng',  # Updated POS tagger
             'maxent_ne_chunker', 
             'words'
         ]
         
-        for download_name in required_downloads:
+        # Also try old names for compatibility
+        compatibility_downloads = [
+            'punkt',
+            'averaged_perceptron_tagger'
+        ]
+        
+        all_downloads = required_downloads + compatibility_downloads
+        
+        for download_name in all_downloads:
             try:
                 nltk.download(download_name, quiet=True)
             except Exception as e:
-                st.warning(f"Could not download {download_name}: {e}")
-        
-        # Also try the old punkt for compatibility
-        try:
-            nltk.download('punkt', quiet=True)
-        except:
-            pass
+                # Don't show warnings for compatibility downloads
+                if download_name not in compatibility_downloads:
+                    st.warning(f"Could not download {download_name}: {e}")
 
     def extract_entities(self, text: str):
         """Extract named entities from text using NLTK."""
