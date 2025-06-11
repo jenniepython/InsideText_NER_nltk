@@ -39,6 +39,19 @@ elif auth_status is None:
     st.warning("Please log in to continue.")
     st.stop()
 
+#!/usr/bin/env python3
+"""
+Streamlit Entity Linker Application
+
+A web interface for the Entity Linker using Streamlit.
+This application provides an easy-to-use interface for entity extraction,
+linking, and visualization.
+
+Author: Based on entity_linker.py
+Version: 1.0
+"""
+
+import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 import plotly.express as px
@@ -57,13 +70,6 @@ except ImportError:
     st.error("entity_linker.py not found! Please ensure it's in the same directory as this file.")
     st.stop()
 
-# Import mordecai3 for geocoding and event identification
-try:
-    import mordecai3
-except ImportError:
-    st.error("mordecai3 not found! Please install it with: pip install mordecai3")
-    st.stop()
-
 
 class StreamlitEntityLinker:
     """
@@ -76,14 +82,6 @@ class StreamlitEntityLinker:
     def __init__(self):
         """Initialize the Streamlit Entity Linker."""
         self.entity_linker = EntityLinker()
-        
-        # Initialize mordecai3
-        try:
-            self.geo_extractor = mordecai3.Geoparser()
-            st.success("Mordecai3 initialized successfully for geocoding and event identification.")
-        except Exception as e:
-            st.warning(f"Could not initialize Mordecai3: {e}. Falling back to basic geocoding.")
-            self.geo_extractor = None
         
         # Configure Streamlit page
         st.set_page_config(
@@ -101,8 +99,6 @@ class StreamlitEntityLinker:
             st.session_state.html_content = ""
         if 'analysis_title' not in st.session_state:
             st.session_state.analysis_title = "text_analysis"
-        if 'mordecai_results' not in st.session_state:
-            st.session_state.mordecai_results = None
 
     def render_header(self):
         """Render the application header."""
@@ -110,11 +106,10 @@ class StreamlitEntityLinker:
         st.markdown("""
         **Extract and link named entities from text to external knowledge bases**
         
-        This tool uses NLTK for Named Entity Recognition (NER) and Mordecai3 for geocoding and event identification. Entities are linked to:
+        This tool uses NLTK for Named Entity Recognition (NER) and links entities to:
         - **Wikidata**: Structured knowledge base
         - **Britannica**: Encyclopedia articles  
         - **OpenStreetMap**: Geographic coordinates
-        - **Mordecai3**: Enhanced geocoding and event detection
         """)
 
     def render_sidebar(self):
@@ -123,7 +118,7 @@ class StreamlitEntityLinker:
         
         # Entity type filters
         st.sidebar.subheader("Entity Type Filters")
-        entity_types = ["PERSON", "ORGANIZATION", "GPE", "LOCATION", "FACILITY", "ADDRESS", "MORDECAI_PLACE", "EVENT"]
+        entity_types = ["PERSON", "ORGANIZATION", "GPE", "LOCATION", "FACILITY", "ADDRESS"]
         selected_types = st.sidebar.multiselect(
             "Show Entity Types",
             entity_types,
@@ -139,22 +134,13 @@ class StreamlitEntityLinker:
         
         # Information about linking
         st.sidebar.subheader("Entity Linking")
-        st.sidebar.info("Entities are linked to Wikidata first, then Britannica as fallback. Addresses are linked to OpenStreetMap. Mordecai3 provides enhanced geocoding and event identification.")
-        
-        # Mordecai3 options
-        st.sidebar.subheader("Mordecai3 Options")
-        use_mordecai = st.sidebar.checkbox("Use Mordecai3 for geocoding", True, 
-                                         help="Use Mordecai3 for enhanced geocoding and event identification")
-        show_events = st.sidebar.checkbox("Show Events", True,
-                                        help="Display events identified by Mordecai3")
+        st.sidebar.info("Entities are linked to Wikidata first, then Britannica as fallback. Addresses are linked to OpenStreetMap.")
         
         return {
             'selected_types': selected_types,
             'show_coordinates': show_coordinates,
             'show_descriptions': show_descriptions,
-            'show_statistics': show_statistics,
-            'use_mordecai': use_mordecai,
-            'show_events': show_events
+            'show_statistics': show_statistics
         }
 
     def render_input_section(self):
@@ -241,22 +227,12 @@ class StreamlitEntityLinker:
                 progress_bar.progress(60)
                 entities = self.entity_linker.link_to_britannica(entities)
                 
-                # Step 3: Use Mordecai3 for enhanced geocoding and events
-                if config['use_mordecai'] and self.geo_extractor:
-                    status_text.text("Running Mordecai3 analysis...")
-                    progress_bar.progress(70)
-                    mordecai_results = self.run_mordecai_analysis(text)
-                    st.session_state.mordecai_results = mordecai_results
-                    
-                    # Enhance entities with Mordecai3 results
-                    entities = self.enhance_with_mordecai(entities, mordecai_results)
-                
-                # Step 4: Get coordinates
+                # Step 3: Get coordinates
                 status_text.text("Getting coordinates...")
                 progress_bar.progress(80)
                 entities = self.entity_linker.get_coordinates(entities)
                 
-                # Step 5: Generate visualization
+                # Step 4: Generate visualization
                 status_text.text("Generating visualization...")
                 progress_bar.progress(100)
                 html_content = self.create_highlighted_html(text, entities)
@@ -304,9 +280,7 @@ class StreamlitEntityLinker:
             'LOCATION': '#96CEB4',
             'FACILITY': '#FECA57',
             'GSP': '#A55EEA',
-            'ADDRESS': '#9B59B6',
-            'MORDECAI_PLACE': '#00CED1',  # Dark turquoise for Mordecai places
-            'EVENT': '#FF69B4'           # Hot pink for events
+            'ADDRESS': '#9B59B6'
         }
         
         # Replace entities from end to start
@@ -353,121 +327,6 @@ class StreamlitEntityLinker:
         
         return highlighted
 
-    def run_mordecai_analysis(self, text: str) -> Dict[str, Any]:
-        """
-        Run Mordecai3 analysis on the text for geocoding and event identification.
-        
-        Args:
-            text: Input text to analyze
-            
-        Returns:
-            Dictionary containing Mordecai3 results
-        """
-        try:
-            # Process text with Mordecai3
-            doc = self.geo_extractor(text)
-            
-            # Extract places and events
-            places = []
-            events = []
-            
-            for token in doc:
-                # Extract place entities with coordinates
-                if hasattr(token, 'geo') and token.geo:
-                    places.append({
-                        'text': token.text,
-                        'start': token.idx,
-                        'end': token.idx + len(token.text),
-                        'country_code': token.geo.get('country_code3', ''),
-                        'admin1': token.geo.get('admin1', ''),
-                        'lat': token.geo.get('lat', 0.0),
-                        'lon': token.geo.get('lon', 0.0),
-                        'feature_class': token.geo.get('feature_class', ''),
-                        'feature_code': token.geo.get('feature_code', ''),
-                        'confidence': token.geo.get('confidence', 0.0)
-                    })
-                
-                # Extract events (if available in your Mordecai3 version)
-                if hasattr(token, 'label_') and 'EVENT' in token.label_:
-                    events.append({
-                        'text': token.text,
-                        'start': token.idx,
-                        'end': token.idx + len(token.text),
-                        'label': token.label_,
-                        'confidence': getattr(token, 'confidence', 0.0)
-                    })
-            
-            return {
-                'places': places,
-                'events': events,
-                'doc_info': {
-                    'total_tokens': len(doc),
-                    'places_found': len(places),
-                    'events_found': len(events)
-                }
-            }
-            
-        except Exception as e:
-            st.error(f"Error running Mordecai3 analysis: {e}")
-            return {'places': [], 'events': [], 'doc_info': {}}
-
-    def enhance_with_mordecai(self, entities: List[Dict[str, Any]], 
-                            mordecai_results: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """
-        Enhance existing entities with Mordecai3 results.
-        
-        Args:
-            entities: Existing entity list
-            mordecai_results: Results from Mordecai3 analysis
-            
-        Returns:
-            Enhanced entity list
-        """
-        # Add Mordecai3 places as entities
-        for place in mordecai_results.get('places', []):
-            # Check if this place overlaps with existing entities
-            overlaps = False
-            for entity in entities:
-                if (place['start'] < entity['end'] and place['end'] > entity['start']):
-                    # Enhance existing entity with Mordecai3 data
-                    if place['lat'] and place['lon']:
-                        entity['mordecai_lat'] = place['lat']
-                        entity['mordecai_lon'] = place['lon']
-                        entity['mordecai_confidence'] = place['confidence']
-                        entity['country_code'] = place['country_code']
-                        entity['admin1'] = place['admin1']
-                    overlaps = True
-                    break
-            
-            # Add as new entity if no overlap and has coordinates
-            if not overlaps and place['lat'] and place['lon']:
-                entities.append({
-                    'text': place['text'],
-                    'type': 'MORDECAI_PLACE',
-                    'start': place['start'],
-                    'end': place['end'],
-                    'latitude': place['lat'],
-                    'longitude': place['lon'],
-                    'mordecai_confidence': place['confidence'],
-                    'country_code': place['country_code'],
-                    'admin1': place['admin1'],
-                    'feature_class': place['feature_class'],
-                    'feature_code': place['feature_code']
-                })
-        
-        # Add Mordecai3 events as entities
-        for event in mordecai_results.get('events', []):
-            entities.append({
-                'text': event['text'],
-                'type': 'EVENT',
-                'start': event['start'],
-                'end': event['end'],
-                'event_label': event['label'],
-                'confidence': event['confidence']
-            })
-        
-        return entities
-
     def render_results(self, config: Dict[str, Any]):
         """
         Render the results section with entities and visualizations.
@@ -498,10 +357,6 @@ class StreamlitEntityLinker:
         # Entity details
         st.subheader("Entity Details")
         self.render_entity_table(filtered_entities, config)
-        
-        # Mordecai3 results
-        if config.get('use_mordecai') and st.session_state.mordecai_results:
-            self.render_mordecai_results(config)
         
         # Map visualization
         if config['show_coordinates']:
@@ -574,57 +429,6 @@ class StreamlitEntityLinker:
         # Create DataFrame and display
         df = pd.DataFrame(table_data)
         st.dataframe(df, use_container_width=True)
-
-    def render_mordecai_results(self, config: Dict[str, Any]):
-        """Render Mordecai3 analysis results."""
-        st.subheader("Mordecai3 Analysis Results")
-        
-        mordecai_results = st.session_state.mordecai_results
-        
-        if not mordecai_results:
-            st.info("No Mordecai3 results available.")
-            return
-        
-        # Summary stats
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Places Found", len(mordecai_results.get('places', [])))
-        with col2:
-            st.metric("Events Found", len(mordecai_results.get('events', [])))
-        with col3:
-            st.metric("Total Tokens", mordecai_results.get('doc_info', {}).get('total_tokens', 0))
-        
-        # Places table
-        if mordecai_results.get('places'):
-            st.subheader("Places Identified by Mordecai3")
-            places_data = []
-            for place in mordecai_results['places']:
-                places_data.append({
-                    'Place': place['text'],
-                    'Country': place['country_code'],
-                    'Admin1': place['admin1'],
-                    'Latitude': f"{place['lat']:.4f}" if place['lat'] else '',
-                    'Longitude': f"{place['lon']:.4f}" if place['lon'] else '',
-                    'Confidence': f"{place['confidence']:.2f}" if place['confidence'] else '',
-                    'Feature': f"{place['feature_class']}/{place['feature_code']}"
-                })
-            
-            df_places = pd.DataFrame(places_data)
-            st.dataframe(df_places, use_container_width=True)
-        
-        # Events table
-        if config.get('show_events') and mordecai_results.get('events'):
-            st.subheader("Events Identified by Mordecai3")
-            events_data = []
-            for event in mordecai_results['events']:
-                events_data.append({
-                    'Event': event['text'],
-                    'Label': event['label'],
-                    'Confidence': f"{event['confidence']:.2f}" if event['confidence'] else ''
-                })
-            
-            df_events = pd.DataFrame(events_data)
-            st.dataframe(df_events, use_container_width=True)
 
     def format_entity_links(self, entity: Dict[str, Any]) -> str:
         """Format entity links for display in table."""
