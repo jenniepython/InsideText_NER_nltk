@@ -12,3 +12,8 @@ requests>=2.31.0
 
 # Additional utilities
 numpy>=1.24.0
+
+# For authentication
+pyyaml>=6.0
+bcrypt>=4.0
+streamlit-authenticator>=0.2.2
