@@ -41,57 +41,60 @@ try:
         config['cookie']['expiry_days']
     )
 
-    # Always render the login form - handle different return types
-    try:
-        # Try different login methods
-        login_result = None
-        try:
-            login_result = authenticator.login(location='main')
-        except TypeError:
-            try:
-                login_result = authenticator.login('Login', 'main')
-            except TypeError:
-                login_result = authenticator.login()
-        
-        # Handle the result
-        st.write(f"Debug - Login result: {login_result}")
-        st.write(f"Debug - Login result type: {type(login_result)}")
-        
-        if login_result is None:
-            # Login form is displayed but no submission yet
-            st.warning("Please enter your username and password")
-            st.stop()
-        elif isinstance(login_result, tuple) and len(login_result) == 3:
-            name, auth_status, username = login_result
-        else:
-            st.error(f"Unexpected login result format: {login_result}")
-            st.stop()
-            
-    except Exception as login_error:
-        st.error(f"Login method error: {login_error}")
-        st.stop()
-
-    # Debug: Show authentication result
-    st.write(f"Debug - Auth status: {auth_status}")
-    st.write(f"Debug - Username attempted: {username}")
-    st.write(f"Debug - Name returned: {name}")
-
-    # Check authentication status
-    if auth_status == False:
-        st.error("Username/password is incorrect")
-        st.info("Try username: demo_user with your password")
-        st.stop()
-    elif auth_status == None:
-        st.warning("Please enter your username and password")
-        st.stop()
-    elif auth_status == True:
+    # Check if already authenticated via session state
+    if 'authentication_status' in st.session_state and st.session_state['authentication_status']:
+        name = st.session_state['name']
         authenticator.logout("Logout", "sidebar")
         st.sidebar.success(f"Welcome *{name}*!")
         st.success(f"Successfully logged in as {name}")
         # Continue to app below...
     else:
-        st.error(f"Authentication status unknown: {auth_status}")
-        st.stop()
+        # Render login form
+        try:
+            # Try different login methods
+            login_result = None
+            try:
+                login_result = authenticator.login(location='main')
+            except TypeError:
+                try:
+                    login_result = authenticator.login('Login', 'main')
+                except TypeError:
+                    login_result = authenticator.login()
+            
+            # Handle the result
+            if login_result is None:
+                # Check session state for authentication result
+                if 'authentication_status' in st.session_state:
+                    auth_status = st.session_state['authentication_status']
+                    if auth_status == False:
+                        st.error("Username/password is incorrect")
+                        st.info("Try username: demo_user with your password")
+                    elif auth_status == None:
+                        st.warning("Please enter your username and password")
+                    elif auth_status == True:
+                        st.rerun()  # Refresh to show authenticated state
+                else:
+                    st.warning("Please enter your username and password")
+                st.stop()
+            elif isinstance(login_result, tuple) and len(login_result) == 3:
+                name, auth_status, username = login_result
+                # Store in session state
+                st.session_state['authentication_status'] = auth_status
+                st.session_state['name'] = name
+                st.session_state['username'] = username
+                
+                if auth_status == True:
+                    st.rerun()  # Refresh to show authenticated state
+                elif auth_status == False:
+                    st.error("Username/password is incorrect")
+                    st.stop()
+            else:
+                st.error(f"Unexpected login result format: {login_result}")
+                st.stop()
+                
+        except Exception as login_error:
+            st.error(f"Login method error: {login_error}")
+            st.stop()
         
 except ImportError:
     st.error("Authentication required: streamlit-authenticator not installed!")
