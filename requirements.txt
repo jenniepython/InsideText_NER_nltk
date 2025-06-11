@@ -1,18 +1,16 @@
 # Core dependencies
-streamlit
-pandas
-plotly
+streamlit>=1.28.0
+pandas>=2.0.0
+plotly>=5.15.0
 
 # NLP dependencies
-nltk
+nltk>=3.8.0
 
 # HTTP requests
-requests
+requests>=2.31.0
+
+# Authentication
+streamlit-authenticator>=0.4.2
 
 # Additional utilities
-numpy
-
-# For authentication
-pyyaml
-bcrypt
-streamlit-authenticator>=0.2.3
+numpy>=1.24.0
