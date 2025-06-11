@@ -41,8 +41,35 @@ try:
         config['cookie']['expiry_days']
     )
 
-    # Always render the login form
-    name, auth_status, username = authenticator.login()
+    # Always render the login form - handle different return types
+    try:
+        # Try different login methods
+        login_result = None
+        try:
+            login_result = authenticator.login(location='main')
+        except TypeError:
+            try:
+                login_result = authenticator.login('Login', 'main')
+            except TypeError:
+                login_result = authenticator.login()
+        
+        # Handle the result
+        st.write(f"Debug - Login result: {login_result}")
+        st.write(f"Debug - Login result type: {type(login_result)}")
+        
+        if login_result is None:
+            # Login form is displayed but no submission yet
+            st.warning("Please enter your username and password")
+            st.stop()
+        elif isinstance(login_result, tuple) and len(login_result) == 3:
+            name, auth_status, username = login_result
+        else:
+            st.error(f"Unexpected login result format: {login_result}")
+            st.stop()
+            
+    except Exception as login_error:
+        st.error(f"Login method error: {login_error}")
+        st.stop()
 
     # Debug: Show authentication result
     st.write(f"Debug - Auth status: {auth_status}")
