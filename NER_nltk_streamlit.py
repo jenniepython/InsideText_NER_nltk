@@ -29,6 +29,10 @@ try:
     with open('config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
 
+    # Debug: Show config structure (remove after testing)
+    st.write("Debug - Config loaded:")
+    st.write(f"Users found: {list(config['credentials']['usernames'].keys())}")
+
     # Setup authentication
     authenticator = stauth.Authenticate(
         config['credentials'],
@@ -37,35 +41,21 @@ try:
         config['cookie']['expiry_days']
     )
 
-    # Handle different versions of streamlit-authenticator
-    try:
-        login_result = authenticator.login(location='main')
-        
-        # Check if login_result is None (newer versions might behave differently)
-        if login_result is None:
-            st.warning("Please log in to continue")
-            st.stop()
-        
-        # Try to unpack the result
-        if isinstance(login_result, tuple) and len(login_result) == 3:
-            name, auth_status, username = login_result
-        else:
-            # Handle case where return format is different
-            st.error("Authentication system error - unexpected login result format")
-            st.stop()
-            
-    except Exception as login_error:
-        st.error(f"Login system error: {login_error}")
-        st.stop()
+    # Always render the login form
+    name, auth_status, username = authenticator.login('Login', 'main')
+
+    # Debug: Show authentication result
+    st.write(f"Debug - Auth status: {auth_status}")
+    st.write(f"Debug - Username attempted: {username}")
+    st.write(f"Debug - Name returned: {name}")
 
     # Check authentication status
     if auth_status == False:
         st.error("Username/password is incorrect")
-        st.info("Debug: Authentication explicitly failed")
+        st.info("Try username: demo_user with your password")
         st.stop()
     elif auth_status == None:
-        st.warning("Please enter your username and password to continue")
-        st.info("Debug: No authentication attempt yet")
+        st.warning("Please enter your username and password")
         st.stop()
     elif auth_status == True:
         authenticator.logout("Logout", "sidebar")
