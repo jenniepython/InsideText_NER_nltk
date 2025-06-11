@@ -15,4 +15,4 @@ numpy
 # For authentication
 pyyaml
 bcrypt
-streamlit-authenticator
+streamlit-authenticator>=0.2.3
