@@ -1,6 +1,6 @@
 # Core dependencies
 streamlit>=1.28.0
-pandas>=2.0.0
+pandas
 plotly>=5.15.0
 
 # NLP dependencies
