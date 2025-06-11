@@ -157,17 +157,20 @@ class EntityLinker:
         required_downloads = [
             'punkt_tab',  # Updated tokenizer
             'averaged_perceptron_tagger_eng',  # Updated POS tagger
-            'maxent_ne_chunker', 
+            'maxent_ne_chunker_tab',  # Updated NE chunker
             'words'
         ]
         
         # Also try old names for compatibility
         compatibility_downloads = [
             'punkt',
-            'averaged_perceptron_tagger'
+            'averaged_perceptron_tagger',
+            'maxent_ne_chunker'
         ]
         
         all_downloads = required_downloads + compatibility_downloads
+        
+        st.info("Downloading NLTK data packages... this may take a moment.")
         
         for download_name in all_downloads:
             try:
@@ -176,6 +179,8 @@ class EntityLinker:
                 # Don't show warnings for compatibility downloads
                 if download_name not in compatibility_downloads:
                     st.warning(f"Could not download {download_name}: {e}")
+        
+        st.success("NLTK data packages downloaded successfully!")
 
     def extract_entities(self, text: str):
         """Extract named entities from text using NLTK."""
