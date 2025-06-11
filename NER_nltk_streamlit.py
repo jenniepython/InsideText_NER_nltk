@@ -12,6 +12,13 @@ Version: 1.0
 
 import streamlit as st
 
+# Configure Streamlit page FIRST - before any other Streamlit commands
+st.set_page_config(
+    page_title="Entity Linker",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
 # Authentication is REQUIRED - do not run app without proper login
 try:
     import streamlit_authenticator as stauth
@@ -226,13 +233,6 @@ class StreamlitEntityLinker:
     def __init__(self):
         """Initialize the Streamlit Entity Linker."""
         self.entity_linker = EntityLinker()
-        
-        # Configure Streamlit page
-        st.set_page_config(
-            page_title="Entity Linker",
-            layout="wide",
-            initial_sidebar_state="expanded"
-        )
         
         # Initialize session state
         if 'entities' not in st.session_state:
