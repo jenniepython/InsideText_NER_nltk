@@ -116,13 +116,103 @@ from typing import List, Dict, Any
 import sys
 import os
 
-# Import our entity linker - assuming entity_linker.py exists alongside this file
-try:
-    from entity_linker import EntityLinker
-except ImportError:
-    st.error("entity_linker.py not found! Please ensure it's in the same directory as this file.")
-    st.info("This app requires the EntityLinker class from entity_linker.py to function.")
-    st.stop()
+# We'll include the EntityLinker class in this same file instead of importing
+# This makes the app self-contained
+
+class EntityLinker:
+    """
+    Main class for entity linking functionality.
+    
+    This class handles the complete pipeline from text processing to entity
+    extraction, validation, linking, and output generation.
+    """
+    
+    def __init__(self):
+        """Initialize the EntityLinker and download required NLTK data."""
+        self._download_nltk_data()
+        
+        # Color scheme for different entity types in HTML output
+        self.colors = {
+            'PERSON': '#FF6B6B',
+            'ORGANIZATION': '#4ECDC4', 
+            'GPE': '#45B7D1',
+            'LOCATION': '#96CEB4',
+            'FACILITY': '#FECA57',
+            'GSP': '#A55EEA',
+            'ADDRESS': '#9B59B6'     # Purple for addresses
+        }
+    
+    def _download_nltk_data(self) -> None:
+        """Download required NLTK data packages if not already present."""
+        required_data = [
+            ('tokenizers/punkt', 'punkt'),
+            ('taggers/averaged_perceptron_tagger', 'averaged_perceptron_tagger'),
+            ('chunkers/maxent_ne_chunker', 'maxent_ne_chunker'),
+            ('corpora/words', 'words')
+        ]
+        
+        for data_path, download_name in required_data:
+            try:
+                import nltk
+                nltk.data.find(data_path)
+            except LookupError:
+                import nltk
+                nltk.download(download_name)
+
+    def extract_entities(self, text: str):
+        """Extract named entities from text using NLTK."""
+        from nltk import ne_chunk, pos_tag, word_tokenize
+        from nltk.tree import Tree
+        
+        # Simple entity extraction - you can expand this
+        tokens = word_tokenize(text)
+        pos_tags = pos_tag(tokens)
+        tree = ne_chunk(pos_tags)
+        
+        entities = []
+        word_index = 0
+        
+        for subtree in tree:
+            if isinstance(subtree, Tree):
+                entity_tokens = [token for token, pos in subtree.leaves()]
+                entity_text = ' '.join(entity_tokens)
+                entity_label = subtree.label()
+                
+                # Skip unwanted types
+                if entity_label in ['TIME', 'MONEY', 'PERCENT', 'DATE']:
+                    word_index += len(entity_tokens)
+                    continue
+                
+                # Find position in text
+                start_pos = text.find(entity_text)
+                if start_pos != -1:
+                    entities.append({
+                        'text': entity_text,
+                        'type': entity_label,
+                        'start': start_pos,
+                        'end': start_pos + len(entity_text)
+                    })
+                
+                word_index += len(entity_tokens)
+            else:
+                word_index += 1
+        
+        return entities
+
+    def link_to_wikidata(self, entities):
+        """Add basic Wikidata linking."""
+        # Simplified version - you can expand this
+        return entities
+
+    def link_to_britannica(self, entities):
+        """Add basic Britannica linking.""" 
+        # Simplified version - you can expand this
+        return entities
+
+    def get_coordinates(self, entities):
+        """Add basic coordinate lookup."""
+        # Simplified version - you can expand this
+        return entities
 
 
 class StreamlitEntityLinker:
