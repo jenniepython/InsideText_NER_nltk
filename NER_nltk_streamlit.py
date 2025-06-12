@@ -231,39 +231,123 @@ class EntityLinker:
         
         return entities
 
+#    def get_coordinates(self, entities):
+#        """Add coordinate lookup using OpenStreetMap Nominatim."""
+#        import requests
+#        import time
+    
+#        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
+    
+#        for entity in entities:
+#            if entity['type'] in place_types:
+#                try:
+#                    url = "https://nominatim.openstreetmap.org/search"
+#                    params = {
+#                        'q': entity['text'],
+#                        'format': 'json',
+#                        'limit': 1
+#                    }
+#                    headers = {'User-Agent': 'EntityLinker/1.0'}
+#                
+#                    response = requests.get(url, params=params, headers=headers, timeout=5)
+#                    if response.status_code == 200:
+#                        data = response.json()
+#                        if data:
+#                            result = data[0]
+#                            entity['latitude'] = float(result['lat'])
+#                            entity['longitude'] = float(result['lon'])
+#                            entity['location_name'] = result['display_name']
+#                
+#                    time.sleep(0.2)  # Rate limiting
+#                except Exception:
+#                    pass  # Continue if geocoding fails
+#    
+#        return entities
+
     def get_coordinates(self, entities):
-        """Add coordinate lookup using OpenStreetMap Nominatim."""
+        """Add coordinate lookup using Python geocoding, then OpenStreetMap as fallback."""
         import requests
         import time
-    
+        
         place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
-    
+        
         for entity in entities:
             if entity['type'] in place_types:
-                try:
-                    url = "https://nominatim.openstreetmap.org/search"
-                    params = {
-                        'q': entity['text'],
-                        'format': 'json',
-                        'limit': 1
-                    }
-                    headers = {'User-Agent': 'EntityLinker/1.0'}
+                # Try Python geocoding libraries first
+                if self._try_python_geocoding(entity):
+                    continue
                 
-                    response = requests.get(url, params=params, headers=headers, timeout=5)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data:
-                            result = data[0]
-                            entity['latitude'] = float(result['lat'])
-                            entity['longitude'] = float(result['lon'])
-                            entity['location_name'] = result['display_name']
-                
-                    time.sleep(0.2)  # Rate limiting
-                except Exception:
-                    pass  # Continue if geocoding fails
-    
+                # Fall back to OpenStreetMap
+                self._try_openstreetmap(entity)
+        
         return entities
-
+    
+    def _try_python_geocoding(self, entity):
+        """Try Python geocoding libraries (geopy)."""
+        try:
+            # Try geopy with multiple providers
+            from geopy.geocoders import Nominatim, GoogleV3, Bing, ArcGIS
+            from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+            
+            # List of geocoders to try in order
+            geocoders = [
+                ('nominatim', Nominatim(user_agent="EntityLinker/1.0")),
+                ('arcgis', ArcGIS(timeout=5)),
+                # Add Google/Bing if you have API keys:
+                # ('google', GoogleV3(api_key="your_api_key")),
+                # ('bing', Bing(api_key="your_api_key")),
+            ]
+            
+            for name, geocoder in geocoders:
+                try:
+                    location = geocoder.geocode(entity['text'], timeout=5)
+                    if location:
+                        entity['latitude'] = location.latitude
+                        entity['longitude'] = location.longitude
+                        entity['location_name'] = location.address
+                        entity['geocoding_source'] = f'geopy_{name}'
+                        return True
+                        
+                    time.sleep(0.2)  # Rate limiting between providers
+                except (GeocoderTimedOut, GeocoderServiceError):
+                    continue
+                    
+        except ImportError:
+            # geopy not installed, skip this method
+            pass
+        except Exception:
+            pass
+        
+        return False
+    
+    def _try_openstreetmap(self, entity):
+        """Fall back to direct OpenStreetMap Nominatim API."""
+        try:
+            url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                'q': entity['text'],
+                'format': 'json',
+                'limit': 1,
+                'addressdetails': 1
+            }
+            headers = {'User-Agent': 'EntityLinker/1.0'}
+        
+            response = requests.get(url, params=params, headers=headers, timeout=5)
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    result = data[0]
+                    entity['latitude'] = float(result['lat'])
+                    entity['longitude'] = float(result['lon'])
+                    entity['location_name'] = result['display_name']
+                    entity['geocoding_source'] = 'openstreetmap'
+                    return True
+        
+            time.sleep(0.2)  # Rate limiting
+        except Exception:
+            pass
+        
+        return False
     def _is_valid_entity(self, entity_text: str, entity_type: str, 
                        pos_tags, entity_start_word_index: int, tokens) -> bool:
         """Validate an entity by analyzing its grammatical context."""
