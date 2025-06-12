@@ -798,7 +798,7 @@ class StreamlitEntityLinker:
                 # Center the logo
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
-                    st.image(logo_path, width=300)  # Adjust width as needed
+                    st.image(logo_path, width=500)  # Adjust width as needed
             else:
                 # If logo file doesn't exist, show a placeholder or message
                 st.info("💡 Place your logo.png file in the same directory as this app to display it here")
@@ -810,7 +810,7 @@ class StreamlitEntityLinker:
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Main title and description
-        st.title("InsideText: Linking Entities with NLTK")
+        st.title("Linking Entities with NLTK")
         st.markdown("**Extract and link named entities from text to external knowledge bases**")
         
         # Create a simple process diagram
