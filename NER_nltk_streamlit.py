@@ -810,13 +810,12 @@ class StreamlitEntityLinker:
                 st.info("💡 Place your logo.png file in the same directory as this app to display it here")
         except Exception as e:
             # If there's any error loading the logo, continue without it
-            st.warning(f"Could not load logo: {e}")
-        
+            st.warning(f"Could not load logo: {e}")        
         # Add some spacing after logo
         st.markdown("<br>", unsafe_allow_html=True)
         
         # Main title and description
-        st.title("Linking Entities with NLTK")
+        st.header("Linking Entities with NLTK")
         st.markdown("**Extract and link named entities from text to external knowledge bases**")
         
         # Create a simple process diagram
