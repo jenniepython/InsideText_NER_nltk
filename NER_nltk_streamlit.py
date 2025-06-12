@@ -1411,12 +1411,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()_wikipedia(_self, entities_json: str) -> str:
-        """Cached Wikipedia linking."""
-        import json
-        entities = json.loads(entities_json)
-        linked_entities = _self.entity_linker.link_to_wikipedia(entities)
-        return json.dumps(linked_entities)
-    
-    @st.cache_data
-    def cached_link_to
+    main()
