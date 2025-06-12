@@ -15,8 +15,8 @@ import streamlit as st
 # Configure Streamlit page FIRST - before any other Streamlit commands
 st.set_page_config(
     page_title="Entity Linker",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    layout="centered",  # Changed from "wide" to "centered" for mobile
+    initial_sidebar_state="collapsed"  # Changed from "expanded" to "collapsed" for mobile
 )
 
 # Authentication is REQUIRED - do not run app without proper login
@@ -35,10 +35,6 @@ try:
     # Load configuration
     with open('config.yaml') as file:
         config = yaml.load(file, Loader=SafeLoader)
-
-    # Debug: Show config structure (remove after testing)
-#    st.write("Debug - Config loaded:")
-#    st.write(f"Users found: {list(config['credentials']['usernames'].keys())}")
 
     # Setup authentication
     authenticator = stauth.Authenticate(
@@ -231,39 +227,6 @@ class EntityLinker:
         
         return entities
 
-#    def get_coordinates(self, entities):
-#        """Add coordinate lookup using OpenStreetMap Nominatim."""
-#        import requests
-#        import time
-    
-#        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
-    
-#        for entity in entities:
-#            if entity['type'] in place_types:
-#                try:
-#                    url = "https://nominatim.openstreetmap.org/search"
-#                    params = {
-#                        'q': entity['text'],
-#                        'format': 'json',
-#                        'limit': 1
-#                    }
-#                    headers = {'User-Agent': 'EntityLinker/1.0'}
-#                
-#                    response = requests.get(url, params=params, headers=headers, timeout=5)
-#                    if response.status_code == 200:
-#                        data = response.json()
-#                        if data:
-#                            result = data[0]
-#                            entity['latitude'] = float(result['lat'])
-#                            entity['longitude'] = float(result['lon'])
-#                            entity['location_name'] = result['display_name']
-#                
-#                    time.sleep(0.2)  # Rate limiting
-#                except Exception:
-#                    pass  # Continue if geocoding fails
-#    
-#        return entities
-
     def get_coordinates(self, entities):
         """Add coordinate lookup using Python geocoding, then OpenStreetMap as fallback."""
         import requests
@@ -348,6 +311,7 @@ class EntityLinker:
             pass
         
         return False
+
     def _is_valid_entity(self, entity_text: str, entity_type: str, 
                        pos_tags, entity_start_word_index: int, tokens) -> bool:
         """Validate an entity by analyzing its grammatical context."""
@@ -627,37 +591,6 @@ class EntityLinker:
                 pass
         
         return entities
-        """Add basic coordinate lookup."""
-        import requests
-        import time
-        
-        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
-        
-        for entity in entities:
-            if entity['type'] in place_types:
-                try:
-                    url = "https://nominatim.openstreetmap.org/search"
-                    params = {
-                        'q': entity['text'],
-                        'format': 'json',
-                        'limit': 1
-                    }
-                    headers = {'User-Agent': 'EntityLinker/1.0'}
-                    
-                    response = requests.get(url, params=params, headers=headers, timeout=5)
-                    if response.status_code == 200:
-                        data = response.json()
-                        if data:
-                            result = data[0]
-                            entity['latitude'] = float(result['lat'])
-                            entity['longitude'] = float(result['lon'])
-                            entity['location_name'] = result['display_name']
-                    
-                    time.sleep(0.2)  # Rate limiting
-                except Exception:
-                    pass
-        
-        return entities
 
 
 class StreamlitEntityLinker:
@@ -718,48 +651,14 @@ class StreamlitEntityLinker:
         """)
 
     def render_sidebar(self):
-        """Render the sidebar with configuration options."""
-#        st.sidebar.header("Configuration")
-        
-        # Entity type filters
-#        st.sidebar.subheader("Entity Type Filters")
-#        entity_types = ["PERSON", "ORGANIZATION", "GPE", "LOCATION", "FACILITY", "ADDRESS"]
-#        selected_types = st.sidebar.multiselect(
-#            "Show Entity Types",
-#            entity_types,
-#            default=entity_types,
-#            help="Select which entity types to display in results"
-#        )
-        
-        # Output options
-#        st.sidebar.subheader("Output Options")
-#        show_coordinates = st.sidebar.checkbox("Show Coordinates", True)
-#        show_descriptions = st.sidebar.checkbox("Show Descriptions", True)
-#        show_statistics = st.sidebar.checkbox("Show Statistics", True)
-        
-        # Information about linking
+        """Render the sidebar with minimal information."""
+        # Entity linking information
         st.sidebar.subheader("Entity Linking")
         st.sidebar.info("Entities are linked to Wikidata first, then Britannica as fallback. Addresses are linked to OpenStreetMap.")
-        
-        # Performance options
-#        st.sidebar.subheader("Performance Options")
-#        skip_geocoding = st.sidebar.checkbox("Skip geocoding (faster)", False,
-#                                           help="Skip coordinate lookup to speed up processing")
-#        limit_entities = st.sidebar.checkbox("Limit to 20 entities", False,
-#                                           help="Process only first 20 entities for faster results")
-        
-        return {
-#            'selected_types': selected_types,
-#            'show_coordinates': show_coordinates,
-#            'show_descriptions': show_descriptions,
-#            'show_statistics': show_statistics,
-#            'skip_geocoding': skip_geocoding,
-#            'limit_entities': limit_entities
-        }
 
     def render_input_section(self):
         """Render the text input section."""
-        st.header("Input Text")
+        st.header("📝 Input Text")
         
         # Add title input
         analysis_title = st.text_input(
@@ -769,53 +668,52 @@ class StreamlitEntityLinker:
         )
         
         # Sample text for demonstration
- #       sample_text = """Recording the Whitechapel Pavilion in 1961. 191-193 Whitechapel Road. theatre. It was a dauntingly complex task, as to my (then) untrained eye, it appeared to be an impenetrable forest of heavy timbers, movable platforms and hoisting gear, looking like the combined wreckage of half a dozen windmills! Richard Southern's explanations enabled me to allocate names to the various pieces of apparatus. The survey of the Pavilion stage was important at the time because it seemed to be the first time that anything of the kind had been done. Since then, we have learned of complete surviving complexes at, for example, Her Majesty's theatre in London, the Citizens in Glasgow and the Tyne theatre in Newcastle, which has been restored by Dr David Wilmore."""
         sample_text = """ """       
         # Text input area - always shown and editable
         text_input = st.text_area(
             "Enter your text here:",
             value=sample_text,  # Pre-populate with sample text
-            height=300,
+            height=200,  # Reduced height for mobile
             placeholder="Paste your text here for entity extraction...",
             help="You can edit this text or replace it with your own content"
         )
         
-        # File upload option
-        st.subheader("Or upload a text file")
-        uploaded_file = st.file_uploader(
-            "Choose a text file (optional)",
-            type=['txt', 'md'],
-            help="Upload a plain text file (.txt) or Markdown file (.md) to replace the text above"
-        )
-        
-        if uploaded_file is not None:
-            try:
-                uploaded_text = str(uploaded_file.read(), "utf-8")
-                text_input = uploaded_text  # Override the text area content
-                st.success(f"File uploaded successfully! ({len(uploaded_text)} characters)")
-                # Set default title from filename if no title provided
-                if not analysis_title:
-                    import os
-                    default_title = os.path.splitext(uploaded_file.name)[0]
-                    st.session_state.suggested_title = default_title
-            except Exception as e:
-                st.error(f"Error reading file: {e}")
+        # File upload option in expander for mobile
+        with st.expander("📁 Or upload a text file"):
+            uploaded_file = st.file_uploader(
+                "Choose a text file",
+                type=['txt', 'md'],
+                help="Upload a plain text file (.txt) or Markdown file (.md) to replace the text above"
+            )
+            
+            if uploaded_file is not None:
+                try:
+                    uploaded_text = str(uploaded_file.read(), "utf-8")
+                    text_input = uploaded_text  # Override the text area content
+                    st.success(f"File uploaded successfully! ({len(uploaded_text)} characters)")
+                    # Set default title from filename if no title provided
+                    if not analysis_title:
+                        import os
+                        default_title = os.path.splitext(uploaded_file.name)[0]
+                        st.session_state.suggested_title = default_title
+                except Exception as e:
+                    st.error(f"Error reading file: {e}")
         
         # Use suggested title if no title provided
         if not analysis_title and hasattr(st.session_state, 'suggested_title'):
             analysis_title = st.session_state.suggested_title
         elif not analysis_title and not uploaded_file:
-            analysis_title = "whitechapel_pavilion_sample"
+            analysis_title = "text_analysis"
         
         return text_input, analysis_title or "text_analysis"
 
-    def process_text(self, text: str, title: str, config: Dict[str, Any]):
+    def process_text(self, text: str, title: str):
         """
-        Process the input text using the EntityLinker with optimization.
+        Process the input text using the EntityLinker.
         
         Args:
             text: Input text to process
-            config: Configuration dictionary from sidebar
+            title: Analysis title
         """
         if not text.strip():
             st.warning("Please enter some text to analyze.")
@@ -840,11 +738,6 @@ class StreamlitEntityLinker:
                 progress_bar.progress(25)
                 entities = self.cached_extract_entities(text)
                 
-                # Limit entities if requested for performance
-  #              if config.get('limit_entities', False):
-  #                  entities = entities[:20]
-  #                  st.info("Limited to first 20 entities for faster processing.")
-                
                 # Step 2: Link to Wikidata (cached)
                 status_text.text("Linking to Wikidata...")
                 progress_bar.progress(50)
@@ -859,13 +752,11 @@ class StreamlitEntityLinker:
                 linked_entities_json = self.cached_link_to_britannica(entities_json)
                 entities = json.loads(linked_entities_json)
                 
-                # Step 4: Get coordinates (optional for performance)
-#                if not config.get('skip_geocoding', False):
+                # Step 4: Get coordinates
                 status_text.text("Getting coordinates...")
                 progress_bar.progress(85)
-                # Only geocode first 10 entities to avoid timeout
                 # Geocode all place entities
-                place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']] #[:10]
+                place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']]
                 for entity in place_entities:
                     if entity in entities:
                         idx = entities.index(entity)
@@ -898,9 +789,6 @@ class StreamlitEntityLinker:
                 status_text.empty()
                 
                 st.success(f"Processing complete! Found {len(entities)} entities.")
-                
-                if config.get('skip_geocoding', False):
-                    st.info("Geocoding was skipped for faster processing.")
                 
             except Exception as e:
                 st.error(f"Error processing text: {e}")
@@ -988,28 +876,22 @@ class StreamlitEntityLinker:
         
         return highlighted
 
-    def render_results(self, config: Dict[str, Any]):
-        """
-        Render the results section with entities and visualizations.
-        
-        Args:
-            config: Configuration dictionary from sidebar
-        """
+    def render_results(self):
+        """Render the results section with entities and visualizations."""
         if not st.session_state.entities:
-            st.info("Enter some text above and click 'Process Text' to see results.")
+            st.info("📄 Enter some text above and click 'Process Text' to see results.")
             return
         
         entities = st.session_state.entities
-        filtered_entities = [e for e in entities] # if e['type'] in config['selected_types']]
         
-        st.header("Results")
+        st.header("📊 Results")
         
-        # Statistics
-        # if config['show_statistics']:
-        self.render_statistics(filtered_entities)
+        # Statistics in collapsible section for mobile
+        with st.expander("📈 Statistics", expanded=True):
+            self.render_statistics(entities)
         
         # Highlighted text
-        st.subheader("Highlighted Text")
+        st.subheader("🎯 Highlighted Text")
         if st.session_state.html_content:
             st.markdown(
                 st.session_state.html_content,
@@ -1018,55 +900,34 @@ class StreamlitEntityLinker:
         else:
             st.info("No highlighted text available. Process some text first.")
         
-        # Entity details
-        st.subheader("Entity Details")
-#        self.render_entity_table(filtered_entities, config)
-        self.render_entity_table(filtered_entities)
+        # Entity details in collapsible section for mobile
+        with st.expander("📋 Entity Details", expanded=False):
+            self.render_entity_table(entities)
         
-        # Export options
-        self.render_export_section(filtered_entities)
+        # Export options in collapsible section for mobile
+        with st.expander("💾 Export Results", expanded=False):
+            self.render_export_section(entities)
 
     def render_statistics(self, entities: List[Dict[str, Any]]):
         """Render statistics about the extracted entities."""
-        st.subheader("Statistics")
-        
-        # Create columns for metrics
-        col1, col2, col3, col4 = st.columns(4)
+        # Create columns for metrics (works well on mobile)
+        col1, col2 = st.columns(2)
         
         with col1:
             st.metric("Total Entities", len(entities))
+            geocoded_count = len([e for e in entities if e.get('latitude')])
+            st.metric("Geocoded Places", geocoded_count)
         
         with col2:
             linked_count = len([e for e in entities if e.get('wikidata_url') or e.get('britannica_url')])
             st.metric("Linked Entities", linked_count)
-        
-        with col3:
-            geocoded_count = len([e for e in entities if e.get('latitude')])
-            st.metric("Geocoded Places", geocoded_count)
-        
-        with col4:
             unique_types = len(set(e['type'] for e in entities))
             st.metric("Entity Types", unique_types)
-        
-        # Entity type distribution
-#        if entities:
-#            entity_counts = {}
-#            for entity in entities:
-#                entity_counts[entity['type']] = entity_counts.get(entity['type'], 0) + 1
-            
-            # Create pie chart
-#                values=list(entity_counts.values()),
-#            fig = px.pie(
-#                names=list(entity_counts.keys()),
-#                title="Entity Type Distribution"
-#            )
-#            fig.update_traces(textposition='inside', textinfo='percent+label')
-#            st.plotly_chart(fig, use_container_width=True)
 
-    def render_entity_table(self, entities: List[Dict[str, Any]], config: Dict[str, Any]):
+    def render_entity_table(self, entities: List[Dict[str, Any]]):
         """Render a table of entity details."""
         if not entities:
-            st.info("No entities found matching the selected filters.")
+            st.info("No entities found.")
             return
         
         # Prepare data for table
@@ -1078,11 +939,9 @@ class StreamlitEntityLinker:
                 'Links': self.format_entity_links(entity)
             }
             
-#            if config['show_descriptions'] and entity.get('wikidata_description'):
             if entity.get('wikidata_description'):
                 row['Description'] = entity['wikidata_description']
             
-#            if config['show_coordinates'] and entity.get('latitude'):
             if entity.get('latitude'):
                 row['Coordinates'] = f"{entity['latitude']:.4f}, {entity['longitude']:.4f}"
                 row['Location'] = entity.get('location_name', '')
@@ -1106,10 +965,8 @@ class StreamlitEntityLinker:
 
     def render_export_section(self, entities: List[Dict[str, Any]]):
         """Render export options for the results."""
-        st.subheader("Export Results")
-        
-#        col1, col2, col3 = st.columns(3)
-        col1, col2= st.columns(2)
+        # Stack buttons vertically for mobile
+        col1, col2 = st.columns(2)
         
         with col1:
             # JSON export - create JSON-LD format
@@ -1171,38 +1028,12 @@ class StreamlitEntityLinker:
             json_str = json.dumps(json_data, indent=2, ensure_ascii=False)
             
             st.download_button(
-                label="Download JSON-LD",
+                label="📄 Download JSON-LD",
                 data=json_str,
                 file_name=f"{st.session_state.analysis_title}_entities.jsonld",
-                mime="application/ld+json"
+                mime="application/ld+json",
+                use_container_width=True
             )
-        
-#        with col2:
-#            # CSV export
-#            if entities:
-#                df_export = pd.DataFrame([
-#                    {
-#                        'entity': e['text'],
-#                        'type': e['type'],
-#                        'start': e['start'],
-#                        'end': e['end'],
-#                        'wikidata_url': e.get('wikidata_url', ''),
-#                        'britannica_url': e.get('britannica_url', ''),
-#                        'description': e.get('wikidata_description', ''),
-#                        'latitude': e.get('latitude', ''),
-#                        'longitude': e.get('longitude', ''),
-#                        'location_name': e.get('location_name', '')
-#                    }
-#                    for e in entities
-#                ])
-                
-#                csv_data = df_export.to_csv(index=False)
-#                st.download_button(
-#                    label="Download CSV",
-#                    data=csv_data,
-#                    file_name=f"{st.session_state.analysis_title}_entities.csv",
-#                    mime="text/csv"
-#                )
         
         with col2:
             # HTML export
@@ -1213,10 +1044,16 @@ class StreamlitEntityLinker:
                 <head>
                     <title>Entity Analysis: {st.session_state.analysis_title}</title>
                     <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
                     <style>
                         body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
                         .content {{ background: white; padding: 20px; border: 1px solid #ddd; border-radius: 5px; line-height: 1.6; }}
                         .header {{ background: #f5f5f5; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+                        @media (max-width: 768px) {{
+                            body {{ padding: 10px; }}
+                            .content {{ padding: 15px; }}
+                            .header {{ padding: 10px; }}
+                        }}
                     </style>
                 </head>
                 <body>
@@ -1233,10 +1070,11 @@ class StreamlitEntityLinker:
                 """
                 
                 st.download_button(
-                    label="Download HTML",
+                    label="🌐 Download HTML",
                     data=html_template,
                     file_name=f"{st.session_state.analysis_title}_entities.html",
-                    mime="text/html"
+                    mime="text/html",
+                    use_container_width=True
                 )
 
     def run(self):
@@ -1244,39 +1082,25 @@ class StreamlitEntityLinker:
         # Render header
         self.render_header()
         
-        # Render sidebar and get configuration
-        config = self.render_sidebar()
+        # Render sidebar
+        self.render_sidebar()
         
-        # Main content area
-        col1, col2 = st.columns([2, 3])
+        # Single column layout for mobile compatibility
+        # Input section
+        text_input, analysis_title = self.render_input_section()
         
-        with col1:
-            # Input section
-            text_input, analysis_title = self.render_input_section()
-            
-            # Performance notice
-            st.info("Tip: Use performance options in sidebar to speed up processing for large texts.")
-            
-            # Process button
-            if st.button("Process Text", type="primary", use_container_width=True):
-                if text_input.strip():
-                    self.process_text(text_input, analysis_title, config)
-                else:
-                    st.warning("Please enter some text to analyze.")
-            
-            # Quick process button for fast results
-            if st.button("Quick Process (No Geocoding)", type="secondary", use_container_width=True):
-                if text_input.strip():
-                    quick_config = config.copy()
-                    quick_config['skip_geocoding'] = True
-                    quick_config['limit_entities'] = True
-                    self.process_text(text_input, analysis_title, quick_config)
-                else:
-                    st.warning("Please enter some text to analyze.")
+        # Process button
+        if st.button("Process Text", type="primary", use_container_width=True):
+            if text_input.strip():
+                self.process_text(text_input, analysis_title)
+            else:
+                st.warning("Please enter some text to analyze.")
         
-        with col2:
-            # Results section
-            self.render_results(config)
+        # Add some spacing
+        st.markdown("---")
+        
+        # Results section
+        self.render_results()
 
 
 def main():
