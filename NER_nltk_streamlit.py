@@ -258,6 +258,43 @@ class EntityLinker:
         
         return entities
 
+    def link_to_britannica(self, entities):
+        """Add basic Britannica linking.""" 
+        import requests
+        import re
+        import time
+        
+        for entity in entities:
+            # Skip if already has Wikidata or Wikipedia link
+            if entity.get('wikidata_url') or entity.get('wikipedia_url'):
+                continue
+                
+            try:
+                search_url = "https://www.britannica.com/search"
+                params = {'query': entity['text']}
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                
+                response = requests.get(search_url, params=params, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    # Look for article links
+                    pattern = r'href="(/topic/[^"]*)"[^>]*>([^<]*)</a>'
+                    matches = re.findall(pattern, response.text)
+                    
+                    for url_path, link_text in matches:
+                        if (entity['text'].lower() in link_text.lower() or 
+                            link_text.lower() in entity['text'].lower()):
+                            entity['britannica_url'] = f"https://www.britannica.com{url_path}"
+                            entity['britannica_title'] = link_text.strip()
+                            break
+                
+                time.sleep(0.3)  # Rate limiting
+            except Exception:
+                pass
+        
+        return entities
+
     def get_coordinates(self, entities):
         """Add coordinate lookup using Python geocoding, then OpenStreetMap as fallback."""
         import requests
