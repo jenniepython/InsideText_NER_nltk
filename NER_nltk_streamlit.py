@@ -295,24 +295,147 @@ class EntityLinker:
         
         return entities
 
+    def _detect_geographical_context(self, text: str, entities: List[Dict[str, Any]]) -> List[str]:
+    """
+    Detect geographical context from the text to improve geocoding accuracy.
+    
+    Args:
+        text: The full input text
+        entities: List of extracted entities
+    
+    Returns:
+        List of context strings to use for geocoding (e.g., ['UK', 'London', 'England'])
+    """
+    import re
+    
+    context_clues = []
+    text_lower = text.lower()
+    
+    # Extract major cities/countries mentioned in the text
+    major_locations = {
+        # Countries
+        'uk': ['uk', 'united kingdom', 'britain', 'great britain'],
+        'usa': ['usa', 'united states', 'america', 'us '],
+        'canada': ['canada'],
+        'australia': ['australia'],
+        'france': ['france'],
+        'germany': ['germany'],
+        'italy': ['italy'],
+        'spain': ['spain'],
+        'japan': ['japan'],
+        'china': ['china'],
+        'india': ['india'],
+        
+        # Major cities that provide strong context
+        'london': ['london'],
+        'new york': ['new york', 'nyc', 'manhattan'],
+        'paris': ['paris'],
+        'tokyo': ['tokyo'],
+        'sydney': ['sydney'],
+        'toronto': ['toronto'],
+        'berlin': ['berlin'],
+        'rome': ['rome'],
+        'madrid': ['madrid'],
+        'beijing': ['beijing'],
+        'mumbai': ['mumbai'],
+        'los angeles': ['los angeles', 'la ', ' la,'],
+        'chicago': ['chicago'],
+        'boston': ['boston'],
+        'edinburgh': ['edinburgh'],
+        'glasgow': ['glasgow'],
+        'manchester': ['manchester'],
+        'birmingham': ['birmingham'],
+        'liverpool': ['liverpool'],
+        'bristol': ['bristol'],
+        'leeds': ['leeds'],
+        'cardiff': ['cardiff'],
+        'belfast': ['belfast'],
+        'dublin': ['dublin'],
+    }
+    
+    # Check for explicit mentions
+    for location, patterns in major_locations.items():
+        for pattern in patterns:
+            if pattern in text_lower:
+                context_clues.append(location)
+                break
+    
+    # Extract from entities that are already identified as places
+    for entity in entities:
+        if entity['type'] in ['GPE', 'LOCATION']:
+            entity_lower = entity['text'].lower()
+            # Add major locations found in entities
+            for location, patterns in major_locations.items():
+                if entity_lower in patterns or any(p in entity_lower for p in patterns):
+                    if location not in context_clues:
+                        context_clues.append(location)
+    
+    # Look for postal codes to infer country
+    postal_patterns = {
+        'uk': [
+            r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b',  # UK postcodes
+            r'\b[A-Z]{2}\d{1,2}\s*\d[A-Z]{2}\b'
+        ],
+        'usa': [
+            r'\b\d{5}(-\d{4})?\b'  # US ZIP codes
+        ],
+        'canada': [
+            r'\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b'  # Canadian postal codes
+        ]
+    }
+    
+    for country, patterns in postal_patterns.items():
+        for pattern in patterns:
+            if re.search(pattern, text):
+                if country not in context_clues:
+                    context_clues.append(country)
+                break
+    
+    # Prioritize context (more specific first)
+    priority_order = ['london', 'new york', 'paris', 'tokyo', 'sydney', 'uk', 'usa', 'canada', 'australia', 'france', 'germany']
+    prioritized_context = []
+    
+    for priority_location in priority_order:
+        if priority_location in context_clues:
+            prioritized_context.append(priority_location)
+    
+    # Add remaining context clues
+    for clue in context_clues:
+        if clue not in prioritized_context:
+            prioritized_context.append(clue)
+    
+    return prioritized_context[:3]  # Return top 3 context clues
+
     def get_coordinates(self, entities):
-        """Add coordinate lookup using Python geocoding, then OpenStreetMap as fallback."""
+        """Enhanced coordinate lookup with geographical context detection."""
         import requests
         import time
         
-        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']
+        # Detect geographical context from the full text
+        context_clues = self._detect_geographical_context(
+            st.session_state.get('processed_text', ''), 
+            entities
+        )
+        
+        if context_clues:
+            print(f"Detected geographical context: {', '.join(context_clues)}")
+        
+        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION', 'ADDRESS']
         
         for entity in entities:
             if entity['type'] in place_types:
                 # Skip if already has coordinates
                 if entity.get('latitude') is not None:
                     continue
+                
+                # Try geocoding with context
+                if self._try_contextual_geocoding(entity, context_clues):
+                    continue
                     
-                # Try Python geocoding libraries first
+                # Fall back to original methods
                 if self._try_python_geocoding(entity):
                     continue
                 
-                # Fall back to OpenStreetMap
                 if self._try_openstreetmap(entity):
                     continue
                     
@@ -321,14 +444,101 @@ class EntityLinker:
         
         return entities
     
-    def _try_python_geocoding(self, entity):
-        """Try Python geocoding libraries (geopy)."""
+    def _try_contextual_geocoding(self, entity, context_clues):
+        """Try geocoding with geographical context."""
+        import requests
+        import time
+        
+        if not context_clues:
+            return False
+        
+        # Create context-aware search terms
+        search_variations = [entity['text']]
+        
+        # Add context to search terms
+        for context in context_clues:
+            context_mapping = {
+                'uk': ['UK', 'United Kingdom', 'England', 'Britain'],
+                'usa': ['USA', 'United States', 'US'],
+                'canada': ['Canada'],
+                'australia': ['Australia'],
+                'france': ['France'],
+                'germany': ['Germany'],
+                'london': ['London, UK', 'London, England'],
+                'new york': ['New York, USA', 'New York, NY'],
+                'paris': ['Paris, France'],
+                'tokyo': ['Tokyo, Japan'],
+                'sydney': ['Sydney, Australia'],
+            }
+            
+            context_variants = context_mapping.get(context, [context])
+            for variant in context_variants:
+                search_variations.append(f"{entity['text']}, {variant}")
+        
+        # Remove duplicates while preserving order
+        search_variations = list(dict.fromkeys(search_variations))
+        
+        # Try geopy first with context
         try:
-            # Try geopy with multiple providers
+            from geopy.geocoders import Nominatim
+            from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+            
+            geocoder = Nominatim(user_agent="EntityLinker/1.0", timeout=10)
+            
+            for search_term in search_variations[:5]:  # Try top 5 variations
+                try:
+                    location = geocoder.geocode(search_term, timeout=10)
+                    if location:
+                        entity['latitude'] = location.latitude
+                        entity['longitude'] = location.longitude
+                        entity['location_name'] = location.address
+                        entity['geocoding_source'] = f'geopy_contextual'
+                        entity['search_term_used'] = search_term
+                        return True
+                    
+                    time.sleep(0.2)  # Rate limiting
+                except (GeocoderTimedOut, GeocoderServiceError):
+                    continue
+                    
+        except ImportError:
+            pass
+        
+        # Fall back to OpenStreetMap with context
+        for search_term in search_variations[:3]:  # Try top 3 with OSM
+            try:
+                url = "https://nominatim.openstreetmap.org/search"
+                params = {
+                    'q': search_term,
+                    'format': 'json',
+                    'limit': 1,
+                    'addressdetails': 1
+                }
+                headers = {'User-Agent': 'EntityLinker/1.0'}
+            
+                response = requests.get(url, params=params, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data:
+                        result = data[0]
+                        entity['latitude'] = float(result['lat'])
+                        entity['longitude'] = float(result['lon'])
+                        entity['location_name'] = result['display_name']
+                        entity['geocoding_source'] = f'openstreetmap_contextual'
+                        entity['search_term_used'] = search_term
+                        return True
+            
+                time.sleep(0.3)  # Rate limiting
+            except Exception:
+                continue
+        
+        return False
+    
+    def _try_python_geocoding(self, entity):
+        """Try Python geocoding libraries (geopy) - original method."""
+        try:
             from geopy.geocoders import Nominatim, ArcGIS
             from geopy.exc import GeocoderTimedOut, GeocoderServiceError
             
-            # List of geocoders to try in order
             geocoders = [
                 ('nominatim', Nominatim(user_agent="EntityLinker/1.0", timeout=10)),
                 ('arcgis', ArcGIS(timeout=10)),
@@ -336,7 +546,6 @@ class EntityLinker:
             
             for name, geocoder in geocoders:
                 try:
-                    # Try the entity name as-is first
                     location = geocoder.geocode(entity['text'], timeout=10)
                     if location:
                         entity['latitude'] = location.latitude
@@ -344,30 +553,16 @@ class EntityLinker:
                         entity['location_name'] = location.address
                         entity['geocoding_source'] = f'geopy_{name}'
                         return True
-                    
-                    # If that fails, try with country context for UK places
-                    if name == 'nominatim':
-                        for suffix in [', UK', ', England', ', Scotland', ', Wales']:
-                            location = geocoder.geocode(f"{entity['text']}{suffix}", timeout=10)
-                            if location:
-                                entity['latitude'] = location.latitude
-                                entity['longitude'] = location.longitude
-                                entity['location_name'] = location.address
-                                entity['geocoding_source'] = f'geopy_{name}_contextual'
-                                return True
                         
-                    time.sleep(0.3)  # Rate limiting between providers
+                    time.sleep(0.3)
                 except (GeocoderTimedOut, GeocoderServiceError):
                     continue
                 except Exception as e:
-                    print(f"Geocoding error for {entity['text']} with {name}: {e}")
                     continue
-                    
+                        
         except ImportError:
-            # geopy not installed, skip this method
             pass
         except Exception as e:
-            print(f"Python geocoding failed for {entity['text']}: {e}")
             pass
         
         return False
