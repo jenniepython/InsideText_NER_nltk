@@ -37,8 +37,8 @@ try:
         config = yaml.load(file, Loader=SafeLoader)
 
     # Debug: Show config structure (remove after testing)
-    st.write("Debug - Config loaded:")
-    st.write(f"Users found: {list(config['credentials']['usernames'].keys())}")
+#    st.write("Debug - Config loaded:")
+#    st.write(f"Users found: {list(config['credentials']['usernames'].keys())}")
 
     # Setup authentication
     authenticator = stauth.Authenticate(
@@ -140,13 +140,13 @@ class EntityLinker:
         
         # Color scheme for different entity types in HTML output
         self.colors = {
-            'PERSON': '#FF6B6B',
-            'ORGANIZATION': '#4ECDC4', 
-            'GPE': '#45B7D1',
-            'LOCATION': '#96CEB4',
-            'FACILITY': '#FECA57',
-            'GSP': '#A55EEA',
-            'ADDRESS': '#9B59B6'     # Purple for addresses
+            'PERSON': '#BF7B69',          # F&B Red earth        
+            'ORGANIZATION': '#9fd2cd',    # F&B Blue ground
+            'GPE': '#C4C3A2',             # F&B Cooking apple green
+            'LOCATION': '#EFCA89',        # F&B Yellow ground. 
+            'FACILITY': '#C3B5AC',        # F&B Elephants breath
+            'GSP': '#C4A998',             # F&B Dead salmon
+            'ADDRESS': '#CCBEAA'          # F&B Oxford stone
         }
     
     def _download_nltk_data(self) -> None:
@@ -842,13 +842,13 @@ class StreamlitEntityLinker:
         
         # Color scheme
         colors = {
-            'PERSON': '#FF6B6B',
-            'ORGANIZATION': '#4ECDC4', 
-            'GPE': '#45B7D1',
-            'LOCATION': '#96CEB4',
-            'FACILITY': '#FECA57',
-            'GSP': '#A55EEA',
-            'ADDRESS': '#9B59B6'
+            'PERSON': '#BF7B69',          # F&B Red earth        
+            'ORGANIZATION': '#9fd2cd',    # F&B Blue ground
+            'GPE': '#C4C3A2',             # F&B Cooking apple green
+            'LOCATION': '#EFCA89',        # F&B Yellow ground. 
+            'FACILITY': '#C3B5AC',        # F&B Elephants breath
+            'GSP': '#C4A998',             # F&B Dead salmon
+            'ADDRESS': '#CCBEAA'          # F&B Oxford stone
         }
         
         # Replace entities from end to start
@@ -866,7 +866,7 @@ class StreamlitEntityLinker:
             end = entity['end']
             original_entity_text = text[start:end]
             escaped_entity_text = html_module.escape(original_entity_text)
-            color = colors.get(entity['type'], '#CCCCCC')
+            color = colors.get(entity['type'], '#E7E2D2')
             
             # Create tooltip with entity information
             tooltip_parts = [f"Type: {entity['type']}"]
@@ -1020,7 +1020,8 @@ class StreamlitEntityLinker:
         """Render export options for the results."""
         st.subheader("Export Results")
         
-        col1, col2, col3 = st.columns(3)
+#        col1, col2, col3 = st.columns(3)
+        col1, col2= st.columns(2)
         
         with col1:
             # JSON export - create JSON-LD format
@@ -1088,34 +1089,34 @@ class StreamlitEntityLinker:
                 mime="application/ld+json"
             )
         
-        with col2:
-            # CSV export
-            if entities:
-                df_export = pd.DataFrame([
-                    {
-                        'entity': e['text'],
-                        'type': e['type'],
-                        'start': e['start'],
-                        'end': e['end'],
-                        'wikidata_url': e.get('wikidata_url', ''),
-                        'britannica_url': e.get('britannica_url', ''),
-                        'description': e.get('wikidata_description', ''),
-                        'latitude': e.get('latitude', ''),
-                        'longitude': e.get('longitude', ''),
-                        'location_name': e.get('location_name', '')
-                    }
-                    for e in entities
-                ])
+#        with col2:
+#            # CSV export
+#            if entities:
+#                df_export = pd.DataFrame([
+#                    {
+#                        'entity': e['text'],
+#                        'type': e['type'],
+#                        'start': e['start'],
+#                        'end': e['end'],
+#                        'wikidata_url': e.get('wikidata_url', ''),
+#                        'britannica_url': e.get('britannica_url', ''),
+#                        'description': e.get('wikidata_description', ''),
+#                        'latitude': e.get('latitude', ''),
+#                        'longitude': e.get('longitude', ''),
+#                        'location_name': e.get('location_name', '')
+#                    }
+#                    for e in entities
+#                ])
                 
-                csv_data = df_export.to_csv(index=False)
-                st.download_button(
-                    label="Download CSV",
-                    data=csv_data,
-                    file_name=f"{st.session_state.analysis_title}_entities.csv",
-                    mime="text/csv"
-                )
+#                csv_data = df_export.to_csv(index=False)
+#                st.download_button(
+#                    label="Download CSV",
+#                    data=csv_data,
+#                    file_name=f"{st.session_state.analysis_title}_entities.csv",
+#                    mime="text/csv"
+#                )
         
-        with col3:
+        with col2:
             # HTML export
             if st.session_state.html_content:
                 html_template = f"""
