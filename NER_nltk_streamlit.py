@@ -236,12 +236,20 @@ class EntityLinker:
         
         for entity in entities:
             if entity['type'] in place_types:
+                # Skip if already has coordinates
+                if entity.get('latitude') is not None:
+                    continue
+                    
                 # Try Python geocoding libraries first
                 if self._try_python_geocoding(entity):
                     continue
                 
                 # Fall back to OpenStreetMap
-                self._try_openstreetmap(entity)
+                if self._try_openstreetmap(entity):
+                    continue
+                    
+                # If still no coordinates, try a more aggressive search
+                self._try_aggressive_geocoding(entity)
         
         return entities
     
@@ -249,36 +257,49 @@ class EntityLinker:
         """Try Python geocoding libraries (geopy)."""
         try:
             # Try geopy with multiple providers
-            from geopy.geocoders import Nominatim, GoogleV3, Bing, ArcGIS
+            from geopy.geocoders import Nominatim, ArcGIS
             from geopy.exc import GeocoderTimedOut, GeocoderServiceError
             
             # List of geocoders to try in order
             geocoders = [
-                ('nominatim', Nominatim(user_agent="EntityLinker/1.0")),
-                ('arcgis', ArcGIS(timeout=5)),
-                # Add Google/Bing if you have API keys:
-                # ('google', GoogleV3(api_key="your_api_key")),
-                # ('bing', Bing(api_key="your_api_key")),
+                ('nominatim', Nominatim(user_agent="EntityLinker/1.0", timeout=10)),
+                ('arcgis', ArcGIS(timeout=10)),
             ]
             
             for name, geocoder in geocoders:
                 try:
-                    location = geocoder.geocode(entity['text'], timeout=5)
+                    # Try the entity name as-is first
+                    location = geocoder.geocode(entity['text'], timeout=10)
                     if location:
                         entity['latitude'] = location.latitude
                         entity['longitude'] = location.longitude
                         entity['location_name'] = location.address
                         entity['geocoding_source'] = f'geopy_{name}'
                         return True
+                    
+                    # If that fails, try with country context for UK places
+                    if name == 'nominatim':
+                        for suffix in [', UK', ', England', ', Scotland', ', Wales']:
+                            location = geocoder.geocode(f"{entity['text']}{suffix}", timeout=10)
+                            if location:
+                                entity['latitude'] = location.latitude
+                                entity['longitude'] = location.longitude
+                                entity['location_name'] = location.address
+                                entity['geocoding_source'] = f'geopy_{name}_contextual'
+                                return True
                         
-                    time.sleep(0.2)  # Rate limiting between providers
+                    time.sleep(0.3)  # Rate limiting between providers
                 except (GeocoderTimedOut, GeocoderServiceError):
+                    continue
+                except Exception as e:
+                    print(f"Geocoding error for {entity['text']} with {name}: {e}")
                     continue
                     
         except ImportError:
             # geopy not installed, skip this method
             pass
-        except Exception:
+        except Exception as e:
+            print(f"Python geocoding failed for {entity['text']}: {e}")
             pass
         
         return False
@@ -295,7 +316,7 @@ class EntityLinker:
             }
             headers = {'User-Agent': 'EntityLinker/1.0'}
         
-            response = requests.get(url, params=params, headers=headers, timeout=5)
+            response = requests.get(url, params=params, headers=headers, timeout=10)
             if response.status_code == 200:
                 data = response.json()
                 if data:
@@ -306,9 +327,56 @@ class EntityLinker:
                     entity['geocoding_source'] = 'openstreetmap'
                     return True
         
-            time.sleep(0.2)  # Rate limiting
-        except Exception:
+            time.sleep(0.3)  # Rate limiting
+        except Exception as e:
+            # Debug: print the error for troubleshooting
+            print(f"OpenStreetMap geocoding failed for {entity['text']}: {e}")
             pass
+        
+        return False
+    
+    def _try_aggressive_geocoding(self, entity):
+        """Try more aggressive geocoding with different search terms."""
+        import requests
+        import time
+        
+        # Try variations of the entity name
+        search_variations = [
+            entity['text'],
+            f"{entity['text']}, UK",  # Add country for UK places
+            f"{entity['text']}, England",
+            f"{entity['text']}, Scotland",
+            f"{entity['text']}, Wales",
+            f"{entity['text']} city",
+            f"{entity['text']} town"
+        ]
+        
+        for search_term in search_variations:
+            try:
+                url = "https://nominatim.openstreetmap.org/search"
+                params = {
+                    'q': search_term,
+                    'format': 'json',
+                    'limit': 1,
+                    'addressdetails': 1
+                }
+                headers = {'User-Agent': 'EntityLinker/1.0'}
+            
+                response = requests.get(url, params=params, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data:
+                        result = data[0]
+                        entity['latitude'] = float(result['lat'])
+                        entity['longitude'] = float(result['lon'])
+                        entity['location_name'] = result['display_name']
+                        entity['geocoding_source'] = f'openstreetmap_aggressive'
+                        entity['search_term_used'] = search_term
+                        return True
+            
+                time.sleep(0.2)  # Rate limiting between attempts
+            except Exception:
+                continue
         
         return False
 
@@ -755,17 +823,26 @@ class StreamlitEntityLinker:
                 # Step 4: Get coordinates
                 status_text.text("Getting coordinates...")
                 progress_bar.progress(85)
-                # Geocode all place entities
+                # Geocode all place entities more aggressively
                 place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']]
-                for entity in place_entities:
-                    if entity in entities:
-                        idx = entities.index(entity)
-                        try:
-                            geocoded = self.entity_linker.get_coordinates([entity])
-                            if geocoded and geocoded[0].get('latitude'):
-                                entities[idx] = geocoded[0]
-                        except:
-                            pass  # Skip if geocoding fails
+                
+                if place_entities:
+                    try:
+                        # Use the get_coordinates method which handles multiple geocoding services
+                        geocoded_entities = self.entity_linker.get_coordinates(place_entities)
+                        
+                        # Update the entities list with geocoded results
+                        for geocoded_entity in geocoded_entities:
+                            # Find the corresponding entity in the main list and update it
+                            for idx, entity in enumerate(entities):
+                                if (entity['text'] == geocoded_entity['text'] and 
+                                    entity['type'] == geocoded_entity['type'] and
+                                    entity['start'] == geocoded_entity['start']):
+                                    entities[idx] = geocoded_entity
+                                    break
+                    except Exception as e:
+                        st.warning(f"Some geocoding failed: {e}")
+                        # Continue with processing even if geocoding fails
                 
                 # Step 5: Link addresses to OpenStreetMap
                 status_text.text("Linking addresses to OpenStreetMap...")
