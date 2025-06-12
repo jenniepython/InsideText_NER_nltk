@@ -14,7 +14,7 @@ import streamlit as st
 
 # Configure Streamlit page FIRST - before any other Streamlit commands
 st.set_page_config(
-    page_title="InsideText: Linking Entities with NLTK",
+    page_title="Linking Entities with NLTK",
     layout="centered",  # Changed from "wide" to "centered" for mobile
     initial_sidebar_state="collapsed"  # Changed from "expanded" to "collapsed" for mobile
 )
@@ -1332,13 +1332,13 @@ class StreamlitEntityLinker:
         st.markdown("""
         <style>
         .stApp {
-            background-color: #F0E9D2 !important;
+            background-color: #F5F0DC !important;
         }
         .main .block-container {
-            background-color: #F0E9D2 !important;
+            background-color: #F5F0DC !important;
         }
         .stSidebar {
-            background-color: #F0E9D2 !important;
+            background-color: #F5F0DC !important;
         }
         .stSelectbox > div > div {
             background-color: white !important;
