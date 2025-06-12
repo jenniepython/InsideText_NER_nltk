@@ -1302,6 +1302,38 @@ class StreamlitEntityLinker:
 
     def run(self):
         """Main application runner."""
+        # Add custom CSS for Farrow & Ball Slipper Satin background
+        st.markdown("""
+        <style>
+        .stApp {
+            background-color: #F0E9D2 !important;
+        }
+        .main .block-container {
+            background-color: #F0E9D2 !important;
+        }
+        .stSidebar {
+            background-color: #F0E9D2 !important;
+        }
+        .stSelectbox > div > div {
+            background-color: white !important;
+        }
+        .stTextInput > div > div > input {
+            background-color: white !important;
+        }
+        .stTextArea > div > div > textarea {
+            background-color: white !important;
+        }
+        .stExpander {
+            background-color: white !important;
+            border: 1px solid #E0D7C0 !important;
+            border-radius: 4px !important;
+        }
+        .stDataFrame {
+            background-color: white !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         # Render header
         self.render_header()
         
@@ -1312,7 +1344,27 @@ class StreamlitEntityLinker:
         # Input section
         text_input, analysis_title = self.render_input_section()
         
-        # Process button
+        # Process button with custom Farrow & Ball Dead Salmon color
+        st.markdown("""
+        <style>
+        .stButton > button {
+            background-color: #C4A998 !important;
+            color: black !important;
+            border: none !important;
+            border-radius: 4px !important;
+            font-weight: 500 !important;
+        }
+        .stButton > button:hover {
+            background-color: #B5998A !important;
+            color: black !important;
+        }
+        .stButton > button:active {
+            background-color: #A68977 !important;
+            color: black !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
         if st.button("Process Text", type="primary", use_container_width=True):
             if text_input.strip():
                 self.process_text(text_input, analysis_title)
@@ -1330,6 +1382,10 @@ def main():
     """Main function to run the Streamlit application."""
     app = StreamlitEntityLinker()
     app.run()
+
+
+if __name__ == "__main__":
+    main()
 
 
 if __name__ == "__main__":
