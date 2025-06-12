@@ -803,10 +803,8 @@ class StreamlitEntityLinker:
             # Try to load and display the logo
             logo_path = "logo.png"  # You can change this filename as needed
             if os.path.exists(logo_path):
-                # Center the logo
-                col1, col2, col3 = st.columns([1, 2, 1])
-                with col2:
-                    st.image(logo_path, width=500)  # Adjust width as needed
+                # Logo naturally aligns to the left without columns
+                st.image(logo_path, width=300)  # Adjust width as needed
             else:
                 # If logo file doesn't exist, show a placeholder or message
                 st.info("💡 Place your logo.png file in the same directory as this app to display it here")
