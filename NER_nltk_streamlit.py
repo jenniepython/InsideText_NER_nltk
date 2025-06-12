@@ -194,19 +194,19 @@ class EntityLinker:
                 # If not available, try to download
                 nltk.download(download_name, quiet=True)
                 
-                # Verify the download worked
-                try:
-                    from nltk.corpus import words
-                    test_words = words.words()[:10]
+#                # Verify the download worked
+#                try:
+#                    from nltk.corpus import words
+#                    test_words = words.words()[:10]
 #                    st.success("Successfully downloaded NLTK words corpus")
-                except:
+#                except:
 #                    st.warning("Words corpus download may be corrupted, but entity extraction will still work")
                     
-            except Exception as e:
-                # If words download fails, continue anyway - it's not critical for NER
+#            except Exception as e:
+#                # If words download fails, continue anyway - it's not critical for NER
 #                st.warning(f"Could not download words corpus (this is not critical): {e}")
 #                st.info("Entity extraction will continue without the words corpus")
-        
+#        
 #        st.success("NLTK data packages downloaded successfully!")
 
     def extract_entities(self, text: str):
