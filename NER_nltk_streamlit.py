@@ -14,7 +14,7 @@ import streamlit as st
 
 # Configure Streamlit page FIRST - before any other Streamlit commands
 st.set_page_config(
-    page_title="Entity Linker",
+    page_title="InsideText: Linking Entities with NLTK",
     layout="centered",  # Changed from "wide" to "centered" for mobile
     initial_sidebar_state="collapsed"  # Changed from "expanded" to "collapsed" for mobile
 )
@@ -580,7 +580,56 @@ class EntityLinker:
         
         return entities
 
-    def link_to_britannica(self, entities):
+    def link_to_wikipedia(self, entities):
+        """Add Wikipedia linking for entities without Wikidata links."""
+        import requests
+        import time
+        import urllib.parse
+        
+        for entity in entities:
+            # Skip if already has Wikidata link
+            if entity.get('wikidata_url'):
+                continue
+                
+            try:
+                # Use Wikipedia's search API
+                search_url = "https://en.wikipedia.org/w/api.php"
+                search_params = {
+                    'action': 'query',
+                    'format': 'json',
+                    'list': 'search',
+                    'srsearch': entity['text'],
+                    'srlimit': 1
+                }
+                
+                headers = {'User-Agent': 'EntityLinker/1.0'}
+                response = requests.get(search_url, params=search_params, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('query', {}).get('search'):
+                        # Get the first search result
+                        result = data['query']['search'][0]
+                        page_title = result['title']
+                        
+                        # Create Wikipedia URL
+                        encoded_title = urllib.parse.quote(page_title.replace(' ', '_'))
+                        entity['wikipedia_url'] = f"https://en.wikipedia.org/wiki/{encoded_title}"
+                        entity['wikipedia_title'] = page_title
+                        
+                        # Get a snippet/description from the search result
+                        if result.get('snippet'):
+                            # Clean up the snippet (remove HTML tags)
+                            import re
+                            snippet = re.sub(r'<[^>]+>', '', result['snippet'])
+                            entity['wikipedia_description'] = snippet[:200] + "..." if len(snippet) > 200 else snippet
+                
+                time.sleep(0.2)  # Rate limiting
+            except Exception as e:
+                print(f"Wikipedia linking failed for {entity['text']}: {e}")
+                pass
+        
+        return entities
         """Add basic Britannica linking.""" 
         import requests
         import re
@@ -699,6 +748,13 @@ class StreamlitEntityLinker:
         return json.dumps(linked_entities)
     
     @st.cache_data
+    def cached_link_to_wikipedia(_self, entities_json: str) -> str:
+        """Cached Wikipedia linking."""
+        import json
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_wikipedia(entities)
+        return json.dumps(linked_entities)
+    @st.cache_data
     def cached_link_to_britannica(_self, entities_json: str) -> str:
         """Cached Britannica linking."""
         import json
@@ -708,25 +764,27 @@ class StreamlitEntityLinker:
 
     def render_header(self):
         """Render the application header."""
-        st.title("Entity Linker")
+        st.title("InsideText: Linking Entities with NLTK")
         st.markdown("""
         **Extract and link named entities from text to external knowledge bases**
         
         This tool uses NLTK for Named Entity Recognition (NER) and links entities to:
         - **Wikidata**: Structured knowledge base
-        - **Britannica**: Encyclopedia articles  
-        - **OpenStreetMap**: Geographic coordinates
+        - **Wikipedia**: Encyclopedia articles (fallback for entities not in Wikidata)
+        - **Britannica**: Encyclopedia articles (additional fallback)
+        - **OpenStreetMap**: Geographic coordinates and address mapping
+        - **Geocoding Services**: Coordinates for places using multiple providers (geopy, Nominatim, ArcGIS)
         """)
 
     def render_sidebar(self):
         """Render the sidebar with minimal information."""
         # Entity linking information
-        st.sidebar.subheader("Entity Linking")
-        st.sidebar.info("Entities are linked to Wikidata first, then Britannica as fallback. Addresses are linked to OpenStreetMap.")
+        st.sidebar.subheader("Entity Linking & Geocoding")
+        st.sidebar.info("Entities are linked to Wikidata first, then Wikipedia, then Britannica as fallbacks. Places and addresses are geocoded using multiple services for accurate coordinates.")
 
     def render_input_section(self):
         """Render the text input section."""
-        st.header("📝 Input Text")
+        st.header("Input Text")
         
         # Add title input
         analysis_title = st.text_input(
@@ -747,7 +805,7 @@ class StreamlitEntityLinker:
         )
         
         # File upload option in expander for mobile
-        with st.expander("📁 Or upload a text file"):
+        with st.expander("Or upload a text file"):
             uploaded_file = st.file_uploader(
                 "Choose a text file",
                 type=['txt', 'md'],
@@ -813,14 +871,21 @@ class StreamlitEntityLinker:
                 linked_entities_json = self.cached_link_to_wikidata(entities_json)
                 entities = json.loads(linked_entities_json)
                 
-                # Step 3: Link to Britannica (cached)
+                # Step 3: Link to Wikipedia (cached)
+                status_text.text("Linking to Wikipedia...")
+                progress_bar.progress(60)
+                entities_json = json.dumps(entities, default=str)
+                linked_entities_json = self.cached_link_to_wikipedia(entities_json)
+                entities = json.loads(linked_entities_json)
+                
+                # Step 4: Link to Britannica (cached)
                 status_text.text("Linking to Britannica...")
-                progress_bar.progress(75)
-                entities_json = json.dumps(entities, default=str)  # Handle non-serializable objects
+                progress_bar.progress(70)
+                entities_json = json.dumps(entities, default=str)
                 linked_entities_json = self.cached_link_to_britannica(entities_json)
                 entities = json.loads(linked_entities_json)
                 
-                # Step 4: Get coordinates
+                # Step 5: Get coordinates
                 status_text.text("Getting coordinates...")
                 progress_bar.progress(85)
                 # Geocode all place entities more aggressively
@@ -844,12 +909,12 @@ class StreamlitEntityLinker:
                         st.warning(f"Some geocoding failed: {e}")
                         # Continue with processing even if geocoding fails
                 
-                # Step 5: Link addresses to OpenStreetMap
+                # Step 6: Link addresses to OpenStreetMap
                 status_text.text("Linking addresses to OpenStreetMap...")
                 progress_bar.progress(90)
                 entities = self.entity_linker.link_to_openstreetmap(entities)
                 
-                # Step 6: Generate visualization
+                # Step 7: Generate visualization
                 status_text.text("Generating visualization...")
                 progress_bar.progress(100)
                 html_content = self.create_highlighted_html(text, entities)
@@ -927,14 +992,14 @@ class StreamlitEntityLinker:
             
             tooltip = " | ".join(tooltip_parts)
             
-            # Create highlighted span with link (priority: Britannica > Wikidata > OpenStreetMap > Coordinates only)
-            if entity.get('britannica_url'):
-                url = html_module.escape(entity["britannica_url"])
+            # Create highlighted span with link (priority: Wikipedia > Wikidata > Britannica > OpenStreetMap > Coordinates only)
+            if entity.get('wikipedia_url'):
+                url = html_module.escape(entity["wikipedia_url"])
                 replacement = f'<a href="{url}" style="background-color: {color}; padding: 2px 4px; border-radius: 3px; text-decoration: none; color: black;" target="_blank" title="{tooltip}">{escaped_entity_text}</a>'
             elif entity.get('wikidata_url'):
                 url = html_module.escape(entity["wikidata_url"])
                 replacement = f'<a href="{url}" style="background-color: {color}; padding: 2px 4px; border-radius: 3px; text-decoration: none; color: black;" target="_blank" title="{tooltip}">{escaped_entity_text}</a>'
-            elif entity.get('openstreetmap_url'):
+            elif entity.get('britannica_url'):
                 url = html_module.escape(entity["openstreetmap_url"])
                 replacement = f'<a href="{url}" style="background-color: {color}; padding: 2px 4px; border-radius: 3px; text-decoration: none; color: black;" target="_blank" title="{tooltip}">{escaped_entity_text}</a>'
             else:
@@ -956,19 +1021,15 @@ class StreamlitEntityLinker:
     def render_results(self):
         """Render the results section with entities and visualizations."""
         if not st.session_state.entities:
-            st.info("📄 Enter some text above and click 'Process Text' to see results.")
+            st.info("Enter some text above and click 'Process Text' to see results.")
             return
         
         entities = st.session_state.entities
         
-        st.header("📊 Results")
-        
-        # Statistics in collapsible section for mobile
-        with st.expander("📈 Statistics", expanded=True):
-            self.render_statistics(entities)
+        st.header("Results")
         
         # Highlighted text
-        st.subheader("🎯 Highlighted Text")
+        st.subheader("Highlighted Text")
         if st.session_state.html_content:
             st.markdown(
                 st.session_state.html_content,
@@ -978,11 +1039,11 @@ class StreamlitEntityLinker:
             st.info("No highlighted text available. Process some text first.")
         
         # Entity details in collapsible section for mobile
-        with st.expander("📋 Entity Details", expanded=False):
+        with st.expander("Entity Details", expanded=False):
             self.render_entity_table(entities)
         
         # Export options in collapsible section for mobile
-        with st.expander("💾 Export Results", expanded=False):
+        with st.expander("Export Results", expanded=False):
             self.render_export_section(entities)
 
     def render_statistics(self, entities: List[Dict[str, Any]]):
@@ -996,7 +1057,7 @@ class StreamlitEntityLinker:
             st.metric("Geocoded Places", geocoded_count)
         
         with col2:
-            linked_count = len([e for e in entities if e.get('wikidata_url') or e.get('britannica_url')])
+            linked_count = len([e for e in entities if e.get('wikidata_url') or e.get('wikipedia_url') or e.get('britannica_url')])
             st.metric("Linked Entities", linked_count)
             unique_types = len(set(e['type'] for e in entities))
             st.metric("Entity Types", unique_types)
@@ -1018,6 +1079,10 @@ class StreamlitEntityLinker:
             
             if entity.get('wikidata_description'):
                 row['Description'] = entity['wikidata_description']
+            elif entity.get('wikipedia_description'):
+                row['Description'] = entity['wikipedia_description']
+            elif entity.get('britannica_title'):
+                row['Description'] = entity['britannica_title']
             
             if entity.get('latitude'):
                 row['Coordinates'] = f"{entity['latitude']:.4f}, {entity['longitude']:.4f}"
@@ -1032,10 +1097,12 @@ class StreamlitEntityLinker:
     def format_entity_links(self, entity: Dict[str, Any]) -> str:
         """Format entity links for display in table."""
         links = []
-        if entity.get('britannica_url'):
-            links.append("Britannica")
+        if entity.get('wikipedia_url'):
+            links.append("Wikipedia")
         if entity.get('wikidata_url'):
             links.append("Wikidata")
+        if entity.get('britannica_url'):
+            links.append("Britannica")
         if entity.get('openstreetmap_url'):
             links.append("OpenStreetMap")
         return " | ".join(links) if links else "No links"
@@ -1070,6 +1137,8 @@ class StreamlitEntityLinker:
                 
                 if entity.get('wikidata_description'):
                     entity_data['description'] = entity['wikidata_description']
+                elif entity.get('wikipedia_description'):
+                    entity_data['description'] = entity['wikipedia_description']
                 elif entity.get('britannica_title'):
                     entity_data['description'] = entity['britannica_title']
                 
@@ -1081,6 +1150,15 @@ class StreamlitEntityLinker:
                     }
                     if entity.get('location_name'):
                         entity_data['geo']['name'] = entity['location_name']
+                
+                if entity.get('wikipedia_url'):
+                    if 'sameAs' in entity_data:
+                        if isinstance(entity_data['sameAs'], str):
+                            entity_data['sameAs'] = [entity_data['sameAs'], entity['wikipedia_url']]
+                        else:
+                            entity_data['sameAs'].append(entity['wikipedia_url'])
+                    else:
+                        entity_data['sameAs'] = entity['wikipedia_url']
                 
                 if entity.get('britannica_url'):
                     if 'sameAs' in entity_data:
@@ -1105,7 +1183,7 @@ class StreamlitEntityLinker:
             json_str = json.dumps(json_data, indent=2, ensure_ascii=False)
             
             st.download_button(
-                label="📄 Download JSON-LD",
+                label="Download JSON-LD",
                 data=json_str,
                 file_name=f"{st.session_state.analysis_title}_entities.jsonld",
                 mime="application/ld+json",
@@ -1147,7 +1225,7 @@ class StreamlitEntityLinker:
                 """
                 
                 st.download_button(
-                    label="🌐 Download HTML",
+                    label="Download HTML",
                     data=html_template,
                     file_name=f"{st.session_state.analysis_title}_entities.html",
                     mime="text/html",
