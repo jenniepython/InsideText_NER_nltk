@@ -296,115 +296,115 @@ class EntityLinker:
         return entities
 
     def _detect_geographical_context(self, text: str, entities: List[Dict[str, Any]]) -> List[str]:
-    """
-    Detect geographical context from the text to improve geocoding accuracy.
-    
-    Args:
-        text: The full input text
-        entities: List of extracted entities
-    
-    Returns:
-        List of context strings to use for geocoding (e.g., ['UK', 'London', 'England'])
-    """
-    import re
-    
-    context_clues = []
-    text_lower = text.lower()
-    
-    # Extract major cities/countries mentioned in the text
-    major_locations = {
-        # Countries
-        'uk': ['uk', 'united kingdom', 'britain', 'great britain'],
-        'usa': ['usa', 'united states', 'america', 'us '],
-        'canada': ['canada'],
-        'australia': ['australia'],
-        'france': ['france'],
-        'germany': ['germany'],
-        'italy': ['italy'],
-        'spain': ['spain'],
-        'japan': ['japan'],
-        'china': ['china'],
-        'india': ['india'],
+        """
+        Detect geographical context from the text to improve geocoding accuracy.
         
-        # Major cities that provide strong context
-        'london': ['london'],
-        'new york': ['new york', 'nyc', 'manhattan'],
-        'paris': ['paris'],
-        'tokyo': ['tokyo'],
-        'sydney': ['sydney'],
-        'toronto': ['toronto'],
-        'berlin': ['berlin'],
-        'rome': ['rome'],
-        'madrid': ['madrid'],
-        'beijing': ['beijing'],
-        'mumbai': ['mumbai'],
-        'los angeles': ['los angeles', 'la ', ' la,'],
-        'chicago': ['chicago'],
-        'boston': ['boston'],
-        'edinburgh': ['edinburgh'],
-        'glasgow': ['glasgow'],
-        'manchester': ['manchester'],
-        'birmingham': ['birmingham'],
-        'liverpool': ['liverpool'],
-        'bristol': ['bristol'],
-        'leeds': ['leeds'],
-        'cardiff': ['cardiff'],
-        'belfast': ['belfast'],
-        'dublin': ['dublin'],
-    }
-    
-    # Check for explicit mentions
-    for location, patterns in major_locations.items():
-        for pattern in patterns:
-            if pattern in text_lower:
-                context_clues.append(location)
-                break
-    
-    # Extract from entities that are already identified as places
-    for entity in entities:
-        if entity['type'] in ['GPE', 'LOCATION']:
-            entity_lower = entity['text'].lower()
-            # Add major locations found in entities
-            for location, patterns in major_locations.items():
-                if entity_lower in patterns or any(p in entity_lower for p in patterns):
-                    if location not in context_clues:
-                        context_clues.append(location)
-    
-    # Look for postal codes to infer country
-    postal_patterns = {
-        'uk': [
-            r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b',  # UK postcodes
-            r'\b[A-Z]{2}\d{1,2}\s*\d[A-Z]{2}\b'
-        ],
-        'usa': [
-            r'\b\d{5}(-\d{4})?\b'  # US ZIP codes
-        ],
-        'canada': [
-            r'\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b'  # Canadian postal codes
-        ]
-    }
-    
-    for country, patterns in postal_patterns.items():
-        for pattern in patterns:
-            if re.search(pattern, text):
-                if country not in context_clues:
-                    context_clues.append(country)
-                break
-    
-    # Prioritize context (more specific first)
-    priority_order = ['london', 'new york', 'paris', 'tokyo', 'sydney', 'uk', 'usa', 'canada', 'australia', 'france', 'germany']
-    prioritized_context = []
-    
-    for priority_location in priority_order:
-        if priority_location in context_clues:
-            prioritized_context.append(priority_location)
-    
-    # Add remaining context clues
-    for clue in context_clues:
-        if clue not in prioritized_context:
-            prioritized_context.append(clue)
-    
-    return prioritized_context[:3]  # Return top 3 context clues
+        Args:
+            text: The full input text
+            entities: List of extracted entities
+        
+        Returns:
+            List of context strings to use for geocoding (e.g., ['UK', 'London', 'England'])
+        """
+        import re
+        
+        context_clues = []
+        text_lower = text.lower()
+        
+        # Extract major cities/countries mentioned in the text
+        major_locations = {
+            # Countries
+            'uk': ['uk', 'united kingdom', 'britain', 'great britain'],
+            'usa': ['usa', 'united states', 'america', 'us '],
+            'canada': ['canada'],
+            'australia': ['australia'],
+            'france': ['france'],
+            'germany': ['germany'],
+            'italy': ['italy'],
+            'spain': ['spain'],
+            'japan': ['japan'],
+            'china': ['china'],
+            'india': ['india'],
+            
+            # Major cities that provide strong context
+            'london': ['london'],
+            'new york': ['new york', 'nyc', 'manhattan'],
+            'paris': ['paris'],
+            'tokyo': ['tokyo'],
+            'sydney': ['sydney'],
+            'toronto': ['toronto'],
+            'berlin': ['berlin'],
+            'rome': ['rome'],
+            'madrid': ['madrid'],
+            'beijing': ['beijing'],
+            'mumbai': ['mumbai'],
+            'los angeles': ['los angeles', 'la ', ' la,'],
+            'chicago': ['chicago'],
+            'boston': ['boston'],
+            'edinburgh': ['edinburgh'],
+            'glasgow': ['glasgow'],
+            'manchester': ['manchester'],
+            'birmingham': ['birmingham'],
+            'liverpool': ['liverpool'],
+            'bristol': ['bristol'],
+            'leeds': ['leeds'],
+            'cardiff': ['cardiff'],
+            'belfast': ['belfast'],
+            'dublin': ['dublin'],
+        }
+        
+        # Check for explicit mentions
+        for location, patterns in major_locations.items():
+            for pattern in patterns:
+                if pattern in text_lower:
+                    context_clues.append(location)
+                    break
+        
+        # Extract from entities that are already identified as places
+        for entity in entities:
+            if entity['type'] in ['GPE', 'LOCATION']:
+                entity_lower = entity['text'].lower()
+                # Add major locations found in entities
+                for location, patterns in major_locations.items():
+                    if entity_lower in patterns or any(p in entity_lower for p in patterns):
+                        if location not in context_clues:
+                            context_clues.append(location)
+        
+        # Look for postal codes to infer country
+        postal_patterns = {
+            'uk': [
+                r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b',  # UK postcodes
+                r'\b[A-Z]{2}\d{1,2}\s*\d[A-Z]{2}\b'
+            ],
+            'usa': [
+                r'\b\d{5}(-\d{4})?\b'  # US ZIP codes
+            ],
+            'canada': [
+                r'\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b'  # Canadian postal codes
+            ]
+        }
+        
+        for country, patterns in postal_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, text):
+                    if country not in context_clues:
+                        context_clues.append(country)
+                    break
+        
+        # Prioritize context (more specific first)
+        priority_order = ['london', 'new york', 'paris', 'tokyo', 'sydney', 'uk', 'usa', 'canada', 'australia', 'france', 'germany']
+        prioritized_context = []
+        
+        for priority_location in priority_order:
+            if priority_location in context_clues:
+                prioritized_context.append(priority_location)
+        
+        # Add remaining context clues
+        for clue in context_clues:
+            if clue not in prioritized_context:
+                prioritized_context.append(clue)
+        
+        return prioritized_context[:3]  # Return top 3 context clues
 
     def get_coordinates(self, entities):
         """Enhanced coordinate lookup with geographical context detection."""
