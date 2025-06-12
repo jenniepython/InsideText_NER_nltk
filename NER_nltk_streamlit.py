@@ -15,8 +15,8 @@ import streamlit as st
 # Configure Streamlit page FIRST - before any other Streamlit commands
 st.set_page_config(
     page_title="Linking Entities with NLTK",
-    layout="centered",  # Changed from "wide" to "centered" for mobile
-    initial_sidebar_state="collapsed"  # Changed from "expanded" to "collapsed" for mobile
+    layout="centered",  
+    initial_sidebar_state="collapsed" 
 )
 
 # Authentication is REQUIRED - do not run app without proper login
@@ -833,13 +833,7 @@ class StreamlitEntityLinker:
                          <strong>Wikidata</strong><br><small>Structured knowledge</small>
                     </div>
                     <div style="background-color: #C3B5AC; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
-                        <strong>Wikipedia</strong><br><small>Encyclopedia articles</small>
-                    </div>
-                    <div style="background-color: #C4A998; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
-                         <strong>Britannica</strong><br><small>Additional encyclopedia</small>
-                    </div>
-                    <div style="background-color: #CCBEAA; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
-                         <strong>OpenStreetMap</strong><br><small>Geographic mapping</small>
+                        <strong>Wikipedia/Britannica</strong><br><small>Encyclopedia articles</small>
                     </div>
                     <div style="background-color: #BF7B69; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
                          <strong>Geocoding</strong><br><small>Coordinates & locations</small>
@@ -850,12 +844,6 @@ class StreamlitEntityLinker:
                     <strong>Output Formats:</strong>
                 </div>
                 <div style="margin: 15px 0;">
-                    <div style="background-color: #E8E1D4; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em; border: 2px solid #C4C3A2;">
-                         <strong>Highlighted Text</strong><br><small>Interactive web view</small>
-                    </div>
-                    <div style="background-color: #E8E1D4; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em; border: 2px solid #9fd2cd;">
-                         <strong>Entity Table</strong><br><small>Structured data view</small>
-                    </div>
                     <div style="background-color: #E8E1D4; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em; border: 2px solid #EFCA89;">
                          <strong>JSON-LD Export</strong><br><small>Structured data format</small>
                     </div>
