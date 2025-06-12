@@ -48,8 +48,8 @@ try:
     if 'authentication_status' in st.session_state and st.session_state['authentication_status']:
         name = st.session_state['name']
         authenticator.logout("Logout", "sidebar")
-        st.sidebar.success(f"Welcome *{name}*!")
-        st.success(f"Successfully logged in as {name}")
+ #       st.sidebar.success(f"Welcome *{name}*!")
+ #       st.success(f"Successfully logged in as {name}")
         # Continue to app below...
     else:
         # Render login form
@@ -167,7 +167,7 @@ class EntityLinker:
         # Words corpus - try to handle corruption
         words_downloads = ['words']
         
-        st.info("Downloading NLTK data packages... this may take a moment.")
+#        st.info("Downloading NLTK data packages... this may take a moment.")
         
         # Download core packages
         for download_name in required_downloads + compatibility_downloads:
@@ -186,7 +186,7 @@ class EntityLinker:
                     from nltk.corpus import words
                     # Test if it works
                     test_words = words.words()[:10]
-                    st.success("Using existing NLTK words corpus")
+#                    st.success("Using existing NLTK words corpus")
                     break
                 except:
                     pass
@@ -198,16 +198,16 @@ class EntityLinker:
                 try:
                     from nltk.corpus import words
                     test_words = words.words()[:10]
-                    st.success("Successfully downloaded NLTK words corpus")
+#                    st.success("Successfully downloaded NLTK words corpus")
                 except:
-                    st.warning("Words corpus download may be corrupted, but entity extraction will still work")
+#                    st.warning("Words corpus download may be corrupted, but entity extraction will still work")
                     
             except Exception as e:
                 # If words download fails, continue anyway - it's not critical for NER
-                st.warning(f"Could not download words corpus (this is not critical): {e}")
-                st.info("Entity extraction will continue without the words corpus")
+#                st.warning(f"Could not download words corpus (this is not critical): {e}")
+#                st.info("Entity extraction will continue without the words corpus")
         
-        st.success("NLTK data packages downloaded successfully!")
+#        st.success("NLTK data packages downloaded successfully!")
 
     def extract_entities(self, text: str):
         """Extract named entities from text using NLTK with proper validation."""
@@ -831,18 +831,65 @@ class StreamlitEntityLinker:
         return json.dumps(linked_entities)
 
     def render_header(self):
-        """Render the application header."""
-        st.title("InsideText: Linking Entities with NLTK")
-        st.markdown("""
-        **Extract and link named entities from text to external knowledge bases**
+        """Render the application header with logo."""
+        # Display logo if it exists
+        try:
+            # Try to load and display the logo
+            logo_path = "logo.png"  # You can change this filename as needed
+            if os.path.exists(logo_path):
+                # Center the logo
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    st.image(logo_path, width=300)  # Adjust width as needed
+            else:
+                # If logo file doesn't exist, show a placeholder or message
+                st.info("💡 Place your logo.png file in the same directory as this app to display it here")
+        except Exception as e:
+            # If there's any error loading the logo, continue without it
+            st.warning(f"Could not load logo: {e}")
         
-        This tool uses NLTK for Named Entity Recognition (NER) and links entities to:
-        - **Wikidata**: Structured knowledge base
-        - **Wikipedia**: Encyclopedia articles (fallback for entities not in Wikidata)
-        - **Britannica**: Encyclopedia articles (additional fallback)
-        - **OpenStreetMap**: Geographic coordinates and address mapping
-        - **Geocoding Services**: Coordinates for places using multiple providers (geopy, Nominatim, ArcGIS)
-        """)
+        # Add some spacing after logo
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # Main title and description
+        st.title("InsideText: Linking Entities with NLTK")
+        st.markdown("**Extract and link named entities from text to external knowledge bases**")
+        
+        # Create a simple process diagram
+        st.markdown("""
+        <div style="background-color: white; padding: 20px; border-radius: 10px; margin: 20px 0; border: 1px solid #E0D7C0;">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="background-color: #C4C3A2; padding: 10px; border-radius: 5px; display: inline-block; margin: 5px;">
+                    📝 <strong>Input Text</strong>
+                </div>
+                <div style="margin: 10px 0;">⬇️</div>
+                <div style="background-color: #9fd2cd; padding: 10px; border-radius: 5px; display: inline-block; margin: 5px;">
+                    🔍 <strong>NLTK Entity Recognition</strong>
+                </div>
+                <div style="margin: 10px 0;">⬇️</div>
+                <div style="text-align: center;">
+                    <strong>Link to Knowledge Bases:</strong>
+                </div>
+                <div style="margin: 15px 0;">
+                    <div style="background-color: #EFCA89; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
+                        🌐 <strong>Wikidata</strong><br><small>Structured knowledge</small>
+                    </div>
+                    <div style="background-color: #C3B5AC; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
+                        📚 <strong>Wikipedia</strong><br><small>Encyclopedia articles</small>
+                    </div>
+                    <div style="background-color: #C4A998; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
+                        📖 <strong>Britannica</strong><br><small>Additional encyclopedia</small>
+                    </div>
+                    <div style="background-color: #CCBEAA; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
+                        🗺️ <strong>OpenStreetMap</strong><br><small>Geographic mapping</small>
+                    </div>
+                    <div style="background-color: #BF7B69; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
+                        📍 <strong>Geocoding</strong><br><small>Coordinates & locations</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
     def render_sidebar(self):
         """Render the sidebar with minimal information."""
