@@ -202,7 +202,7 @@ class EntityLinker:
 #                except:
 #                    st.warning("Words corpus download may be corrupted, but entity extraction will still work")
                     
-#            except Exception as e:
+            except Exception as e:
 #                # If words download fails, continue anyway - it's not critical for NER
 #                st.warning(f"Could not download words corpus (this is not critical): {e}")
 #                st.info("Entity extraction will continue without the words corpus")
