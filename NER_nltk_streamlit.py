@@ -719,42 +719,42 @@ class StreamlitEntityLinker:
 
     def render_sidebar(self):
         """Render the sidebar with configuration options."""
-        st.sidebar.header("Configuration")
+#        st.sidebar.header("Configuration")
         
         # Entity type filters
-        st.sidebar.subheader("Entity Type Filters")
-        entity_types = ["PERSON", "ORGANIZATION", "GPE", "LOCATION", "FACILITY", "ADDRESS"]
-        selected_types = st.sidebar.multiselect(
-            "Show Entity Types",
-            entity_types,
-            default=entity_types,
-            help="Select which entity types to display in results"
-        )
+#        st.sidebar.subheader("Entity Type Filters")
+#        entity_types = ["PERSON", "ORGANIZATION", "GPE", "LOCATION", "FACILITY", "ADDRESS"]
+#        selected_types = st.sidebar.multiselect(
+#            "Show Entity Types",
+#            entity_types,
+#            default=entity_types,
+#            help="Select which entity types to display in results"
+#        )
         
         # Output options
-        st.sidebar.subheader("Output Options")
-        show_coordinates = st.sidebar.checkbox("Show Coordinates", True)
-        show_descriptions = st.sidebar.checkbox("Show Descriptions", True)
-        show_statistics = st.sidebar.checkbox("Show Statistics", True)
+#        st.sidebar.subheader("Output Options")
+#        show_coordinates = st.sidebar.checkbox("Show Coordinates", True)
+#        show_descriptions = st.sidebar.checkbox("Show Descriptions", True)
+#        show_statistics = st.sidebar.checkbox("Show Statistics", True)
         
         # Information about linking
         st.sidebar.subheader("Entity Linking")
         st.sidebar.info("Entities are linked to Wikidata first, then Britannica as fallback. Addresses are linked to OpenStreetMap.")
         
         # Performance options
-        st.sidebar.subheader("Performance Options")
-        skip_geocoding = st.sidebar.checkbox("Skip geocoding (faster)", False,
-                                           help="Skip coordinate lookup to speed up processing")
-        limit_entities = st.sidebar.checkbox("Limit to 20 entities", False,
-                                           help="Process only first 20 entities for faster results")
+#        st.sidebar.subheader("Performance Options")
+#        skip_geocoding = st.sidebar.checkbox("Skip geocoding (faster)", False,
+#                                           help="Skip coordinate lookup to speed up processing")
+#        limit_entities = st.sidebar.checkbox("Limit to 20 entities", False,
+#                                           help="Process only first 20 entities for faster results")
         
         return {
-            'selected_types': selected_types,
-            'show_coordinates': show_coordinates,
-            'show_descriptions': show_descriptions,
-            'show_statistics': show_statistics,
-            'skip_geocoding': skip_geocoding,
-            'limit_entities': limit_entities
+#            'selected_types': selected_types,
+#            'show_coordinates': show_coordinates,
+#            'show_descriptions': show_descriptions,
+#            'show_statistics': show_statistics,
+#            'skip_geocoding': skip_geocoding,
+#            'limit_entities': limit_entities
         }
 
     def render_input_section(self):
@@ -769,8 +769,8 @@ class StreamlitEntityLinker:
         )
         
         # Sample text for demonstration
-        sample_text = """Recording the Whitechapel Pavilion in 1961. 191-193 Whitechapel Road. theatre. It was a dauntingly complex task, as to my (then) untrained eye, it appeared to be an impenetrable forest of heavy timbers, movable platforms and hoisting gear, looking like the combined wreckage of half a dozen windmills! Richard Southern's explanations enabled me to allocate names to the various pieces of apparatus. The survey of the Pavilion stage was important at the time because it seemed to be the first time that anything of the kind had been done. Since then, we have learned of complete surviving complexes at, for example, Her Majesty's theatre in London, the Citizens in Glasgow and the Tyne theatre in Newcastle, which has been restored by Dr David Wilmore."""
-        
+ #       sample_text = """Recording the Whitechapel Pavilion in 1961. 191-193 Whitechapel Road. theatre. It was a dauntingly complex task, as to my (then) untrained eye, it appeared to be an impenetrable forest of heavy timbers, movable platforms and hoisting gear, looking like the combined wreckage of half a dozen windmills! Richard Southern's explanations enabled me to allocate names to the various pieces of apparatus. The survey of the Pavilion stage was important at the time because it seemed to be the first time that anything of the kind had been done. Since then, we have learned of complete surviving complexes at, for example, Her Majesty's theatre in London, the Citizens in Glasgow and the Tyne theatre in Newcastle, which has been restored by Dr David Wilmore."""
+        sample_text = """ """       
         # Text input area - always shown and editable
         text_input = st.text_area(
             "Enter your text here:",
@@ -841,9 +841,9 @@ class StreamlitEntityLinker:
                 entities = self.cached_extract_entities(text)
                 
                 # Limit entities if requested for performance
-                if config.get('limit_entities', False):
-                    entities = entities[:20]
-                    st.info("Limited to first 20 entities for faster processing.")
+  #              if config.get('limit_entities', False):
+  #                  entities = entities[:20]
+  #                  st.info("Limited to first 20 entities for faster processing.")
                 
                 # Step 2: Link to Wikidata (cached)
                 status_text.text("Linking to Wikidata...")
@@ -860,20 +860,21 @@ class StreamlitEntityLinker:
                 entities = json.loads(linked_entities_json)
                 
                 # Step 4: Get coordinates (optional for performance)
-                if not config.get('skip_geocoding', False):
-                    status_text.text("Getting coordinates...")
-                    progress_bar.progress(85)
-                    # Only geocode first 10 entities to avoid timeout
-                    place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']][:10]
-                    for entity in place_entities:
-                        if entity in entities:
-                            idx = entities.index(entity)
-                            try:
-                                geocoded = self.entity_linker.get_coordinates([entity])
-                                if geocoded and geocoded[0].get('latitude'):
-                                    entities[idx] = geocoded[0]
-                            except:
-                                pass  # Skip if geocoding fails
+#                if not config.get('skip_geocoding', False):
+                status_text.text("Getting coordinates...")
+                progress_bar.progress(85)
+                # Only geocode first 10 entities to avoid timeout
+                # Geocode all place entities
+                place_entities = [e for e in entities if e['type'] in ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION']] #[:10]
+                for entity in place_entities:
+                    if entity in entities:
+                        idx = entities.index(entity)
+                        try:
+                            geocoded = self.entity_linker.get_coordinates([entity])
+                            if geocoded and geocoded[0].get('latitude'):
+                                entities[idx] = geocoded[0]
+                        except:
+                            pass  # Skip if geocoding fails
                 
                 # Step 5: Link addresses to OpenStreetMap
                 status_text.text("Linking addresses to OpenStreetMap...")
@@ -929,7 +930,7 @@ class StreamlitEntityLinker:
             'PERSON': '#BF7B69',          # F&B Red earth        
             'ORGANIZATION': '#9fd2cd',    # F&B Blue ground
             'GPE': '#C4C3A2',             # F&B Cooking apple green
-            'LOCATION': '#EFCA89',        # F&B Yellow ground. 
+            'LOCATION': '#EFCA89',        # F&B Yellow ground 
             'FACILITY': '#C3B5AC',        # F&B Elephants breath
             'GSP': '#C4A998',             # F&B Dead salmon
             'ADDRESS': '#CCBEAA'          # F&B Oxford stone
@@ -999,7 +1000,7 @@ class StreamlitEntityLinker:
             return
         
         entities = st.session_state.entities
-        filtered_entities = [e for e in entities if e['type'] in config['selected_types']]
+        filtered_entities = [e for e in entities] # if e['type'] in config['selected_types']]
         
         st.header("Results")
         
