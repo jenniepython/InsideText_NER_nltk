@@ -1005,8 +1005,8 @@ class StreamlitEntityLinker:
         st.header("Results")
         
         # Statistics
-        if config['show_statistics']:
-            self.render_statistics(filtered_entities)
+        # if config['show_statistics']:
+        self.render_statistics(filtered_entities)
         
         # Highlighted text
         st.subheader("Highlighted Text")
