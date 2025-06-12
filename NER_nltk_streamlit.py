@@ -1057,8 +1057,9 @@ class StreamlitEntityLinker:
         for entity in sorted_entities:
             # Highlight entities that have links OR coordinates
             has_links = (entity.get('britannica_url') or 
-                        entity.get('wikidata_url') or 
-                        entity.get('openstreetmap_url'))
+                         entity.get('wikidata_url') or 
+                         entity.get('wikipedia_url') or     
+                         entity.get('openstreetmap_url'))
             has_coordinates = entity.get('latitude') is not None
             
             if not (has_links or has_coordinates):
