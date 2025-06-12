@@ -788,6 +788,14 @@ class StreamlitEntityLinker:
         linked_entities = _self.entity_linker.link_to_britannica(entities)
         return json.dumps(linked_entities)
 
+    @st.cache_data
+    def cached_link_to_wikipedia(_self, entities_json: str) -> str:
+        """Cached Wikipedia linking."""
+        import json
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_wikipedia(entities)
+        return json.dumps(linked_entities)
+
     def render_header(self):
         """Render the application header with logo."""
         # Display logo if it exists
