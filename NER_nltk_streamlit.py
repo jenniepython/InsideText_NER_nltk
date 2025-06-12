@@ -148,13 +148,13 @@ class EntityLinker:
     def _download_nltk_data(self) -> None:
         """Download required NLTK data packages if not already present."""
         import nltk
+        import os
         
         # Updated NLTK data requirements for newer versions
         required_downloads = [
             'punkt_tab',  # Updated tokenizer
             'averaged_perceptron_tagger_eng',  # Updated POS tagger
             'maxent_ne_chunker_tab',  # Updated NE chunker
-            'words'
         ]
         
         # Also try old names for compatibility
@@ -164,17 +164,48 @@ class EntityLinker:
             'maxent_ne_chunker'
         ]
         
-        all_downloads = required_downloads + compatibility_downloads
+        # Words corpus - try to handle corruption
+        words_downloads = ['words']
         
         st.info("Downloading NLTK data packages... this may take a moment.")
         
-        for download_name in all_downloads:
+        # Download core packages
+        for download_name in required_downloads + compatibility_downloads:
             try:
                 nltk.download(download_name, quiet=True)
             except Exception as e:
                 # Don't show warnings for compatibility downloads
                 if download_name not in compatibility_downloads:
                     st.warning(f"Could not download {download_name}: {e}")
+        
+        # Handle words corpus separately with error handling
+        for download_name in words_downloads:
+            try:
+                # First try to use existing words corpus
+                try:
+                    from nltk.corpus import words
+                    # Test if it works
+                    test_words = words.words()[:10]
+                    st.success("Using existing NLTK words corpus")
+                    break
+                except:
+                    pass
+                
+                # If not available, try to download
+                nltk.download(download_name, quiet=True)
+                
+                # Verify the download worked
+                try:
+                    from nltk.corpus import words
+                    test_words = words.words()[:10]
+                    st.success("Successfully downloaded NLTK words corpus")
+                except:
+                    st.warning("Words corpus download may be corrupted, but entity extraction will still work")
+                    
+            except Exception as e:
+                # If words download fails, continue anyway - it's not critical for NER
+                st.warning(f"Could not download words corpus (this is not critical): {e}")
+                st.info("Entity extraction will continue without the words corpus")
         
         st.success("NLTK data packages downloaded successfully!")
 
