@@ -1020,7 +1020,8 @@ class StreamlitEntityLinker:
         
         # Entity details
         st.subheader("Entity Details")
-        self.render_entity_table(filtered_entities, config)
+#        self.render_entity_table(filtered_entities, config)
+        self.render_entity_table(filtered_entities)
         
         # Export options
         self.render_export_section(filtered_entities)
@@ -1077,10 +1078,12 @@ class StreamlitEntityLinker:
                 'Links': self.format_entity_links(entity)
             }
             
-            if config['show_descriptions'] and entity.get('wikidata_description'):
+#            if config['show_descriptions'] and entity.get('wikidata_description'):
+            if entity.get('wikidata_description'):
                 row['Description'] = entity['wikidata_description']
             
-            if config['show_coordinates'] and entity.get('latitude'):
+#            if config['show_coordinates'] and entity.get('latitude'):
+            if entity.get('latitude'):
                 row['Coordinates'] = f"{entity['latitude']:.4f}, {entity['longitude']:.4f}"
                 row['Location'] = entity.get('location_name', '')
             
