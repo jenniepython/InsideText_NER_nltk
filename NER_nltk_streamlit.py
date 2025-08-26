@@ -1,4 +1,584 @@
-def render_header(self):
+#!/usr/bin/env python3
+"""
+Complete Streamlit Entity Linker Application
+
+A web interface for the Entity Linker using Streamlit.
+This application provides an easy-to-use interface for entity extraction,
+linking, and visualization.
+
+Author: Based on entity_linker.py
+Version: 1.0
+"""
+
+import streamlit as st
+
+# Configure Streamlit page FIRST - before any other Streamlit commands
+st.set_page_config(
+    page_title="From Text to Linked Data using NLTK",
+    layout="centered",  
+    initial_sidebar_state="collapsed" 
+)
+
+# Note: Authentication code would go here - removed for this example
+# In production, include proper authentication as shown in original
+
+import streamlit.components.v1 as components
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import json
+import io
+import base64
+from typing import List, Dict, Any
+import sys
+import os
+import re
+import hashlib
+import time
+import requests
+import urllib.parse
+
+class EntityLinker:
+    """
+    Main class for entity linking functionality.
+    
+    This class handles the complete pipeline from text processing to entity
+    extraction, validation, linking, and output generation.
+    """
+    
+    def __init__(self):
+        """Initialize the EntityLinker and download required NLTK data."""
+        self._download_nltk_data()
+        
+        # Color scheme for different entity types in HTML output
+        self.colors = {
+            'PERSON': '#BF7B69',          # F&B Red earth        
+            'ORGANIZATION': '#9fd2cd',    # F&B Blue ground
+            'GPE': '#C4C3A2',             # F&B Cooking apple green
+            'LOCATION': '#EFCA89',        # F&B Yellow ground. 
+            'FACILITY': '#C3B5AC',        # F&B Elephants breath
+            'GSP': '#C4A998',             # F&B Dead salmon
+            'ADDRESS': '#CCBEAA'          # F&B Oxford stone
+        }
+    
+    def _download_nltk_data(self) -> None:
+        """Download required NLTK data packages if not already present."""
+        import nltk
+        
+        # Updated NLTK data requirements for newer versions
+        required_downloads = [
+            'punkt_tab',  # Updated tokenizer
+            'averaged_perceptron_tagger_eng',  # Updated POS tagger
+            'maxent_ne_chunker_tab',  # Updated NE chunker
+        ]
+        
+        # Also try old names for compatibility
+        compatibility_downloads = [
+            'punkt',
+            'averaged_perceptron_tagger',
+            'maxent_ne_chunker'
+        ]
+        
+        # Words corpus - try to handle corruption
+        words_downloads = ['words']
+        
+        # Download core packages
+        for download_name in required_downloads + compatibility_downloads:
+            try:
+                nltk.download(download_name, quiet=True)
+            except Exception as e:
+                # Don't show warnings for compatibility downloads
+                if download_name not in compatibility_downloads:
+                    st.warning(f"Could not download {download_name}: {e}")
+        
+        # Handle words corpus separately with error handling
+        for download_name in words_downloads:
+            try:
+                # First try to use existing words corpus
+                try:
+                    from nltk.corpus import words
+                    # Test if it works
+                    test_words = words.words()[:10]
+                    break
+                except:
+                    pass
+                
+                # If not available, try to download
+                nltk.download(download_name, quiet=True)
+                    
+            except Exception as e:
+                # If words download fails, continue anyway - it's not critical for NER
+                st.warning(f"Could not download words corpus (this is not critical): {e}")
+
+    def extract_entities(self, text: str):
+        """Extract named entities from text using NLTK with proper validation and handle multiple occurrences."""
+        from nltk import ne_chunk, pos_tag, word_tokenize
+        from nltk.tree import Tree
+        
+        # Step 1: Tokenize and POS tag the text
+        tokens = word_tokenize(text)
+        pos_tags = pos_tag(tokens)
+        tree = ne_chunk(pos_tags)
+        
+        # Step 2: First pass - extract unique entities from NLTK
+        unique_entities = {}  # Dictionary to store unique entity texts and their properties
+        word_index = 0
+        
+        for subtree in tree:
+            if isinstance(subtree, Tree):
+                entity_tokens = [token for token, pos in subtree.leaves()]
+                entity_text = ' '.join(entity_tokens)
+                entity_label = subtree.label()
+                
+                # Filter out unwanted entity types
+                if entity_label in ['TIME', 'MONEY', 'PERCENT', 'DATE']:
+                    word_index += len(entity_tokens)
+                    continue
+                
+                # Validate entity using grammatical context
+                if self._is_valid_entity(entity_text, entity_label, pos_tags, word_index, tokens):
+                    # Store unique entity information
+                    entity_key = f"{entity_text.lower()}:{entity_label}"
+                    if entity_key not in unique_entities:
+                        unique_entities[entity_key] = {
+                            'text': entity_text,
+                            'type': entity_label,
+                            'original_case': entity_text  # Keep original case
+                        }
+                
+                word_index += len(entity_tokens)
+            else:
+                word_index += 1
+        
+        # Step 3: Find ALL occurrences of each unique entity in the text
+        entities = []
+        
+        for entity_key, entity_info in unique_entities.items():
+            entity_text = entity_info['text']
+            entity_type = entity_info['type']
+            
+            # Find all occurrences of this entity in the text (case-insensitive search but preserve original case)
+            # Use regex to find word boundaries to avoid partial matches
+            pattern = r'\b' + re.escape(entity_text) + r'\b'
+            
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                # Use the actual text from the match (preserves case as it appears in the source)
+                actual_text = text[match.start():match.end()]
+                
+                entities.append({
+                    'text': actual_text,
+                    'type': entity_type,
+                    'start': match.start(),
+                    'end': match.end()
+                })
+        
+        # Step 4: Extract addresses
+        addresses = self._extract_addresses(text)
+        entities.extend(addresses)
+        
+        # Step 5: Remove overlapping entities (but keep multiple occurrences of same entity)
+        entities = self._remove_overlapping_entities(entities)
+        
+        # Step 6: Sort by position for consistent processing
+        entities.sort(key=lambda x: x['start'])
+        
+        return entities
+
+    def _is_valid_entity(self, entity_text: str, entity_type: str, 
+                       pos_tags, entity_start_word_index: int, tokens) -> bool:
+        """Validate an entity by analyzing its grammatical context."""
+        # Skip very short entities
+        if len(entity_text.strip()) <= 1:
+            return False
+        
+        # Get the POS tag for this entity
+        if entity_start_word_index >= len(pos_tags):
+            return True  # Default to valid if we can't find the position
+        
+        word_pos = pos_tags[entity_start_word_index][1]
+        entity_word = pos_tags[entity_start_word_index][0]
+        
+        # Define grammatical categories to filter out
+        verb_tags = ['VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ']
+        adjective_tags = ['JJ', 'JJR', 'JJS']
+        
+        # Filter out words functioning as verbs or adjectives
+        if word_pos in verb_tags or word_pos in adjective_tags or word_pos == 'MD':
+            return False
+        
+        return True
+
+    def _extract_addresses(self, text: str):
+        """Extract address patterns that NER might miss."""
+        addresses = []
+        
+        # Patterns for different address formats
+        address_patterns = [
+            r'\b\d{1,4}[-–]\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Lane|Drive|Way|Place|Square|Gardens)\b',
+            r'\b\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Lane|Drive|Way|Place|Square|Gardens)\b'
+        ]
+        
+        for pattern in address_patterns:
+            for match in re.finditer(pattern, text):
+                addresses.append({
+                    'text': match.group(),
+                    'type': 'ADDRESS',
+                    'start': match.start(),
+                    'end': match.end()
+                })
+        
+        return addresses
+
+    def _remove_overlapping_entities(self, entities):
+        """Remove overlapping entities, keeping the longest ones."""
+        entities.sort(key=lambda x: x['start'])
+        
+        filtered = []
+        for entity in entities:
+            overlaps = False
+            for existing in filtered[:]:  # Create a copy to safely modify during iteration
+                # Check if entities overlap
+                if (entity['start'] < existing['end'] and entity['end'] > existing['start']):
+                    # If current entity is longer, remove the existing one
+                    if len(entity['text']) > len(existing['text']):
+                        filtered.remove(existing)
+                        break
+                    else:
+                        # Current entity is shorter, skip it
+                        overlaps = True
+                        break
+            
+            if not overlaps:
+                filtered.append(entity)
+        
+        return filtered
+
+    def link_to_wikidata(self, entities):
+        """Add basic Wikidata linking - optimized for multiple occurrences."""
+        # Create a dictionary to store link information by entity text + type
+        entity_links = {}
+        
+        # Get unique entity text + type combinations to avoid duplicate API calls
+        unique_entities = {}
+        for entity in entities:
+            entity_key = f"{entity['text'].lower()}:{entity['type']}"
+            if entity_key not in unique_entities:
+                unique_entities[entity_key] = entity
+        
+        # Process unique entities
+        for entity_key, entity in unique_entities.items():
+            try:
+                url = "https://www.wikidata.org/w/api.php"
+                params = {
+                    'action': 'wbsearchentities',
+                    'format': 'json',
+                    'search': entity['text'],
+                    'language': 'en',
+                    'limit': 1,
+                    'type': 'item'
+                }
+                
+                response = requests.get(url, params=params, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('search') and len(data['search']) > 0:
+                        result = data['search'][0]
+                        entity_links[entity_key] = {
+                            'wikidata_url': f"http://www.wikidata.org/entity/{result['id']}",
+                            'wikidata_description': result.get('description', '')
+                        }
+                
+                time.sleep(0.1)  # Rate limiting
+            except Exception:
+                pass  # Continue if API call fails
+        
+        # Apply the link information to all entities
+        for entity in entities:
+            entity_key = f"{entity['text'].lower()}:{entity['type']}"
+            if entity_key in entity_links:
+                entity.update(entity_links[entity_key])
+        
+        return entities
+
+    def link_to_wikipedia(self, entities):
+        """Add Wikipedia linking for entities without Wikidata links."""
+        # Create a dictionary to store link information by entity text + type
+        entity_links = {}
+        
+        # Get unique entity text + type combinations to avoid duplicate API calls
+        unique_entities = {}
+        for entity in entities:
+            entity_key = f"{entity['text'].lower()}:{entity['type']}"
+            if entity_key not in unique_entities and not entity.get('wikidata_url'):
+                unique_entities[entity_key] = entity
+        
+        # Process unique entities that don't have Wikidata links
+        for entity_key, entity in unique_entities.items():
+            try:
+                # Use Wikipedia's search API
+                search_url = "https://en.wikipedia.org/w/api.php"
+                search_params = {
+                    'action': 'query',
+                    'format': 'json',
+                    'list': 'search',
+                    'srsearch': entity['text'],
+                    'srlimit': 1
+                }
+                
+                headers = {'User-Agent': 'EntityLinker/1.0'}
+                response = requests.get(search_url, params=search_params, headers=headers, timeout=10)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data.get('query', {}).get('search'):
+                        # Get the first search result
+                        result = data['query']['search'][0]
+                        page_title = result['title']
+                        
+                        # Create Wikipedia URL
+                        encoded_title = urllib.parse.quote(page_title.replace(' ', '_'))
+                        
+                        entity_links[entity_key] = {
+                            'wikipedia_url': f"https://en.wikipedia.org/wiki/{encoded_title}",
+                            'wikipedia_title': page_title
+                        }
+                        
+                        # Get a snippet/description from the search result
+                        if result.get('snippet'):
+                            # Clean up the snippet (remove HTML tags)
+                            snippet = re.sub(r'<[^>]+>', '', result['snippet'])
+                            entity_links[entity_key]['wikipedia_description'] = snippet[:200] + "..." if len(snippet) > 200 else snippet
+                
+                time.sleep(0.2)  # Rate limiting
+            except Exception:
+                pass
+        
+        # Apply the link information to all entities
+        for entity in entities:
+            entity_key = f"{entity['text'].lower()}:{entity['type']}"
+            if entity_key in entity_links:
+                entity.update(entity_links[entity_key])
+        
+        return entities
+
+    def link_to_britannica(self, entities):
+        """Add basic Britannica linking - optimized for multiple occurrences.""" 
+        # Create a dictionary to store link information by entity text + type
+        entity_links = {}
+        
+        # Get unique entity text + type combinations to avoid duplicate API calls
+        unique_entities = {}
+        for entity in entities:
+            entity_key = f"{entity['text'].lower()}:{entity['type']}"
+            if (entity_key not in unique_entities and 
+                not entity.get('wikidata_url') and 
+                not entity.get('wikipedia_url')):
+                unique_entities[entity_key] = entity
+        
+        # Process unique entities that don't have other links
+        for entity_key, entity in unique_entities.items():            
+            try:
+                search_url = "https://www.britannica.com/search"
+                params = {'query': entity['text']}
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                }
+                
+                response = requests.get(search_url, params=params, headers=headers, timeout=10)
+                if response.status_code == 200:
+                    # Look for article links
+                    pattern = r'href="(/topic/[^"]*)"[^>]*>([^<]*)</a>'
+                    matches = re.findall(pattern, response.text)
+                    
+                    for url_path, link_text in matches:
+                        if (entity['text'].lower() in link_text.lower() or 
+                            link_text.lower() in entity['text'].lower()):
+                            entity_links[entity_key] = {
+                                'britannica_url': f"https://www.britannica.com{url_path}",
+                                'britannica_title': link_text.strip()
+                            }
+                            break
+                
+                time.sleep(0.3)  # Rate limiting
+            except Exception:
+                pass
+        
+        # Apply the link information to all entities
+        for entity in entities:
+            entity_key = f"{entity['text'].lower()}:{entity['type']}"
+            if entity_key in entity_links:
+                entity.update(entity_links[entity_key])
+        
+        return entities
+
+    def get_coordinates(self, entities):
+        """Get coordinates for place entities using multiple geocoding services."""
+        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION', 'ADDRESS']
+        
+        for entity in entities:
+            if entity['type'] in place_types:
+                # Skip if already has coordinates
+                if entity.get('latitude') is not None:
+                    continue
+                
+                # Try different geocoding approaches
+                if self._try_python_geocoding(entity):
+                    continue
+                
+                if self._try_openstreetmap(entity):
+                    continue
+        
+        return entities
+    
+    def _try_python_geocoding(self, entity):
+        """Try Python geocoding libraries (geopy)."""
+        try:
+            from geopy.geocoders import Nominatim
+            from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+            
+            geocoder = Nominatim(user_agent="EntityLinker/1.0", timeout=10)
+            
+            try:
+                location = geocoder.geocode(entity['text'], timeout=10)
+                if location:
+                    entity['latitude'] = location.latitude
+                    entity['longitude'] = location.longitude
+                    entity['location_name'] = location.address
+                    entity['geocoding_source'] = 'geopy_nominatim'
+                    return True
+                        
+                time.sleep(0.3)
+            except (GeocoderTimedOut, GeocoderServiceError):
+                pass
+                        
+        except ImportError:
+            pass
+        except Exception:
+            pass
+        
+        return False
+    
+    def _try_openstreetmap(self, entity):
+        """Fall back to direct OpenStreetMap Nominatim API."""
+        try:
+            url = "https://nominatim.openstreetmap.org/search"
+            params = {
+                'q': entity['text'],
+                'format': 'json',
+                'limit': 1,
+                'addressdetails': 1
+            }
+            headers = {'User-Agent': 'EntityLinker/1.0'}
+        
+            response = requests.get(url, params=params, headers=headers, timeout=10)
+            if response.status_code == 200:
+                data = response.json()
+                if data:
+                    result = data[0]
+                    entity['latitude'] = float(result['lat'])
+                    entity['longitude'] = float(result['lon'])
+                    entity['location_name'] = result['display_name']
+                    entity['geocoding_source'] = 'openstreetmap'
+                    return True
+        
+            time.sleep(0.3)  # Rate limiting
+        except Exception:
+            pass
+        
+        return False
+
+    def link_to_openstreetmap(self, entities):
+        """Add OpenStreetMap links to addresses."""
+        for entity in entities:
+            # Only process ADDRESS entities
+            if entity['type'] != 'ADDRESS':
+                continue
+                
+            try:
+                # Search OpenStreetMap Nominatim for the address
+                url = "https://nominatim.openstreetmap.org/search"
+                params = {
+                    'q': entity['text'],
+                    'format': 'json',
+                    'limit': 1,
+                    'addressdetails': 1
+                }
+                headers = {'User-Agent': 'EntityLinker/1.0'}
+                
+                response = requests.get(url, params=params, headers=headers, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    if data:
+                        result = data[0]
+                        # Create OpenStreetMap link
+                        lat = result['lat']
+                        lon = result['lon']
+                        entity['openstreetmap_url'] = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=18"
+                        entity['openstreetmap_display_name'] = result['display_name']
+                        
+                        # Also add coordinates
+                        entity['latitude'] = float(lat)
+                        entity['longitude'] = float(lon)
+                        entity['location_name'] = result['display_name']
+                
+                time.sleep(0.2)  # Rate limiting
+            except Exception:
+                pass
+        
+        return entities
+
+
+class StreamlitEntityLinker:
+    """
+    Streamlit wrapper for the EntityLinker class.
+    
+    Provides a web interface with additional visualization and
+    export capabilities for entity analysis.
+    """
+    
+    def __init__(self):
+        """Initialize the Streamlit Entity Linker."""
+        self.entity_linker = EntityLinker()
+        
+        # Initialize session state
+        if 'entities' not in st.session_state:
+            st.session_state.entities = []
+        if 'processed_text' not in st.session_state:
+            st.session_state.processed_text = ""
+        if 'html_content' not in st.session_state:
+            st.session_state.html_content = ""
+        if 'analysis_title' not in st.session_state:
+            st.session_state.analysis_title = "text_analysis"
+        if 'last_processed_hash' not in st.session_state:
+            st.session_state.last_processed_hash = ""
+
+    @st.cache_data
+    def cached_extract_entities(_self, text: str) -> List[Dict[str, Any]]:
+        """Cached entity extraction to avoid reprocessing same text."""
+        return _self.entity_linker.extract_entities(text)
+    
+    @st.cache_data  
+    def cached_link_to_wikidata(_self, entities_json: str) -> str:
+        """Cached Wikidata linking."""
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_wikidata(entities)
+        return json.dumps(linked_entities)
+    
+    @st.cache_data
+    def cached_link_to_britannica(_self, entities_json: str) -> str:
+        """Cached Britannica linking."""
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_britannica(entities)
+        return json.dumps(linked_entities)
+
+    @st.cache_data
+    def cached_link_to_wikipedia(_self, entities_json: str) -> str:
+        """Cached Wikipedia linking."""
+        entities = json.loads(entities_json)
+        linked_entities = _self.entity_linker.link_to_wikipedia(entities)
+        return json.dumps(linked_entities)
+
+    def render_header(self):
         """Render the application header with logo."""
         # Display logo if it exists
         try:
@@ -9,7 +589,7 @@ def render_header(self):
                 st.image(logo_path, width=300)  # Adjust width as needed
             else:
                 # If logo file doesn't exist, show a placeholder or message
-                st.info("💡 Place your logo.png file in the same directory as this app to display it here")
+                st.info("Place your logo.png file in the same directory as this app to display it here")
         except Exception as e:
             # If there's any error loading the logo, continue without it
             st.warning(f"Could not load logo: {e}")        
@@ -19,48 +599,6 @@ def render_header(self):
         # Main title and description
         st.header("From Text to Linked Data using NLTK")
         st.markdown("**Extract and link named entities from text to external knowledge bases**")
-        
-        # Create a simple process diagram
-        st.markdown("""
-        <div style="background-color: white; padding: 20px; border-radius: 10px; margin: 20px 0; border: 1px solid #E0D7C0;">
-            <div style="text-align: center; margin-bottom: 20px;">
-                <div style="background-color: #C4C3A2; padding: 10px; border-radius: 5px; display: inline-block; margin: 5px;">
-                     <strong>Input Text</strong>
-                </div>
-                <div style="margin: 10px 0;">⬇️</div>
-                <div style="background-color: #9fd2cd; padding: 10px; border-radius: 5px; display: inline-block; margin: 5px;">
-                     <strong>NLTK Entity Recognition</strong>
-                </div>
-                <div style="margin: 10px 0;">⬇️</div>
-                <div style="text-align: center;">
-                    <strong>Link to Knowledge Bases:</strong>
-                </div>
-                <div style="margin: 15px 0;">
-                    <div style="background-color: #EFCA89; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
-                         <strong>Wikidata</strong><br><small>Structured knowledge</small>
-                    </div>
-                    <div style="background-color: #C3B5AC; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
-                        <strong>Wikipedia/Britannica</strong><br><small>Encyclopedia articles</small>
-                    </div>
-                    <div style="background-color: #BF7B69; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em;">
-                         <strong>Geocoding</strong><br><small>Coordinates & locations</small>
-                    </div>
-                </div>
-                <div style="margin: 10px 0;">⬇️</div>
-                <div style="text-align: center;">
-                    <strong>Output Formats:</strong>
-                </div>
-                <div style="margin: 15px 0;">
-                    <div style="background-color: #E8E1D4; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em; border: 2px solid #EFCA89;">
-                         <strong>JSON-LD Export</strong><br><small>Structured data format</small>
-                    </div>
-                    <div style="background-color: #E8E1D4; padding: 8px; border-radius: 5px; display: inline-block; margin: 3px; font-size: 0.9em; border: 2px solid #C3B5AC;">
-                         <strong>HTML Export</strong><br><small>Portable web format</small>
-                    </div>
-                </div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
 
     def render_sidebar(self):
         """Render the sidebar with minimal information."""
@@ -80,7 +618,8 @@ def render_header(self):
         )
         
         # Sample text for demonstration
-        sample_text = """ """       
+        sample_text = "Barack Obama was born in Hawaii. He served as President of the United States from 2009 to 2017. Obama attended Harvard Law School and later taught at the University of Chicago."
+        
         # Text input area - always shown and editable
         text_input = st.text_area(
             "Enter your text here:",
@@ -119,19 +658,12 @@ def render_header(self):
         return text_input, analysis_title or "text_analysis"
 
     def process_text(self, text: str, title: str):
-        """
-        Process the input text using the EntityLinker.
-        
-        Args:
-            text: Input text to process
-            title: Analysis title
-        """
+        """Process the input text using the EntityLinker."""
         if not text.strip():
             st.warning("Please enter some text to analyze.")
             return
         
         # Check if we've already processed this exact text
-        import hashlib
         text_hash = hashlib.md5(text.encode()).hexdigest()
         
         if text_hash == st.session_state.last_processed_hash:
@@ -222,10 +754,7 @@ def render_header(self):
                 st.exception(e)
 
     def create_highlighted_html(self, text: str, entities: List[Dict[str, Any]]) -> str:
-        """
-        Create HTML content with highlighted entities for display.
-        This version properly handles multiple occurrences of the same entity.
-        """
+        """Create HTML content with highlighted entities for display."""
         import html as html_module
         
         # Sort entities by start position (reverse for safe replacement)
@@ -333,6 +862,9 @@ def render_header(self):
         entities = st.session_state.entities
         
         st.header("Results")
+        
+        # Statistics
+        self.render_statistics(entities)
         
         # Highlighted text
         st.subheader("Highlighted Text")
@@ -623,1049 +1155,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()#!/usr/bin/env python3
-"""
-Streamlit Entity Linker Application
-
-A web interface for the Entity Linker using Streamlit.
-This application provides an easy-to-use interface for entity extraction,
-linking, and visualization.
-
-Author: Based on entity_linker.py
-Version: 1.0
-"""
-
-import streamlit as st
-
-# Configure Streamlit page FIRST - before any other Streamlit commands
-st.set_page_config(
-    page_title="From Text to Linked Data using NLTK",
-    layout="centered",  
-    initial_sidebar_state="collapsed" 
-)
-
-# Authentication is REQUIRED - do not run app without proper login
-try:
-    import streamlit_authenticator as stauth
-    import yaml
-    from yaml.loader import SafeLoader
-    import os
-    
-    # Check if config file exists
-    if not os.path.exists('config.yaml'):
-        st.error("Authentication required: config.yaml file not found!")
-        st.info("Please ensure config.yaml is in the same directory as this app.")
-        st.stop()
-    
-    # Load configuration
-    with open('config.yaml') as file:
-        config = yaml.load(file, Loader=SafeLoader)
-
-    # Setup authentication
-    authenticator = stauth.Authenticate(
-        config['credentials'],
-        config['cookie']['name'],
-        config['cookie']['key'],
-        config['cookie']['expiry_days']
-    )
-
-    # Check if already authenticated via session state
-    if 'authentication_status' in st.session_state and st.session_state['authentication_status']:
-        name = st.session_state['name']
-        authenticator.logout("Logout", "sidebar")
-        # Continue to app below...
-    else:
-        # Render login form
-        try:
-            # Try different login methods
-            login_result = None
-            try:
-                login_result = authenticator.login(location='main')
-            except TypeError:
-                try:
-                    login_result = authenticator.login('Login', 'main')
-                except TypeError:
-                    login_result = authenticator.login()
-            
-            # Handle the result
-            if login_result is None:
-                # Check session state for authentication result
-                if 'authentication_status' in st.session_state:
-                    auth_status = st.session_state['authentication_status']
-                    if auth_status == False:
-                        st.error("Username/password is incorrect")
-                        st.info("Try username: demo_user with your password")
-                    elif auth_status == None:
-                        st.warning("Please enter your username and password")
-                    elif auth_status == True:
-                        st.rerun()  # Refresh to show authenticated state
-                else:
-                    st.warning("Please enter your username and password")
-                st.stop()
-            elif isinstance(login_result, tuple) and len(login_result) == 3:
-                name, auth_status, username = login_result
-                # Store in session state
-                st.session_state['authentication_status'] = auth_status
-                st.session_state['name'] = name
-                st.session_state['username'] = username
-                
-                if auth_status == True:
-                    st.rerun()  # Refresh to show authenticated state
-                elif auth_status == False:
-                    st.error("Username/password is incorrect")
-                    st.stop()
-            else:
-                st.error(f"Unexpected login result format: {login_result}")
-                st.stop()
-                
-        except Exception as login_error:
-            st.error(f"Login method error: {login_error}")
-            st.stop()
-        
-except ImportError:
-    st.error("Authentication required: streamlit-authenticator not installed!")
-    st.info("Please install streamlit-authenticator to access this application.")
-    st.stop()
-except Exception as e:
-    st.error(f"Authentication error: {e}")
-    st.info("Cannot proceed without proper authentication.")
-    st.stop()
-
-import streamlit.components.v1 as components
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-import json
-import io
-import base64
-from typing import List, Dict, Any
-import sys
-import os
-import re
-
-# We'll include the EntityLinker class in this same file instead of importing
-# This makes the app self-contained
-
-class EntityLinker:
-    """
-    Main class for entity linking functionality.
-    
-    This class handles the complete pipeline from text processing to entity
-    extraction, validation, linking, and output generation.
-    """
-    
-    def __init__(self):
-        """Initialize the EntityLinker and download required NLTK data."""
-        self._download_nltk_data()
-        
-        # Color scheme for different entity types in HTML output
-        self.colors = {
-            'PERSON': '#BF7B69',          # F&B Red earth        
-            'ORGANIZATION': '#9fd2cd',    # F&B Blue ground
-            'GPE': '#C4C3A2',             # F&B Cooking apple green
-            'LOCATION': '#EFCA89',        # F&B Yellow ground. 
-            'FACILITY': '#C3B5AC',        # F&B Elephants breath
-            'GSP': '#C4A998',             # F&B Dead salmon
-            'ADDRESS': '#CCBEAA'          # F&B Oxford stone
-        }
-    
-    def _download_nltk_data(self) -> None:
-        """Download required NLTK data packages if not already present."""
-        import nltk
-        import os
-        
-        # Updated NLTK data requirements for newer versions
-        required_downloads = [
-            'punkt_tab',  # Updated tokenizer
-            'averaged_perceptron_tagger_eng',  # Updated POS tagger
-            'maxent_ne_chunker_tab',  # Updated NE chunker
-        ]
-        
-        # Also try old names for compatibility
-        compatibility_downloads = [
-            'punkt',
-            'averaged_perceptron_tagger',
-            'maxent_ne_chunker'
-        ]
-        
-        # Words corpus - try to handle corruption
-        words_downloads = ['words']
-        
-        # Download core packages
-        for download_name in required_downloads + compatibility_downloads:
-            try:
-                nltk.download(download_name, quiet=True)
-            except Exception as e:
-                # Don't show warnings for compatibility downloads
-                if download_name not in compatibility_downloads:
-                    st.warning(f"Could not download {download_name}: {e}")
-        
-        # Handle words corpus separately with error handling
-        for download_name in words_downloads:
-            try:
-                # First try to use existing words corpus
-                try:
-                    from nltk.corpus import words
-                    # Test if it works
-                    test_words = words.words()[:10]
-                    break
-                except:
-                    pass
-                
-                # If not available, try to download
-                nltk.download(download_name, quiet=True)
-                    
-            except Exception as e:
-                # If words download fails, continue anyway - it's not critical for NER
-                st.warning(f"Could not download words corpus (this is not critical): {e}")
-
-    def extract_entities(self, text: str):
-        """Extract named entities from text using NLTK with proper validation and handle multiple occurrences."""
-        from nltk import ne_chunk, pos_tag, word_tokenize
-        from nltk.tree import Tree
-        
-        # Step 1: Tokenize and POS tag the text
-        tokens = word_tokenize(text)
-        pos_tags = pos_tag(tokens)
-        tree = ne_chunk(pos_tags)
-        
-        # Step 2: First pass - extract unique entities from NLTK
-        unique_entities = {}  # Dictionary to store unique entity texts and their properties
-        word_index = 0
-        
-        for subtree in tree:
-            if isinstance(subtree, Tree):
-                entity_tokens = [token for token, pos in subtree.leaves()]
-                entity_text = ' '.join(entity_tokens)
-                entity_label = subtree.label()
-                
-                # Filter out unwanted entity types
-                if entity_label in ['TIME', 'MONEY', 'PERCENT', 'DATE']:
-                    word_index += len(entity_tokens)
-                    continue
-                
-                # Validate entity using grammatical context
-                if self._is_valid_entity(entity_text, entity_label, pos_tags, word_index, tokens):
-                    # Store unique entity information
-                    entity_key = f"{entity_text.lower()}:{entity_label}"
-                    if entity_key not in unique_entities:
-                        unique_entities[entity_key] = {
-                            'text': entity_text,
-                            'type': entity_label,
-                            'original_case': entity_text  # Keep original case
-                        }
-                
-                word_index += len(entity_tokens)
-            else:
-                word_index += 1
-        
-        # Step 3: Find ALL occurrences of each unique entity in the text
-        entities = []
-        
-        for entity_key, entity_info in unique_entities.items():
-            entity_text = entity_info['text']
-            entity_type = entity_info['type']
-            
-            # Find all occurrences of this entity in the text (case-insensitive search but preserve original case)
-            # Use regex to find word boundaries to avoid partial matches
-            pattern = r'\b' + re.escape(entity_text) + r'\b'
-            
-            for match in re.finditer(pattern, text, re.IGNORECASE):
-                # Use the actual text from the match (preserves case as it appears in the source)
-                actual_text = text[match.start():match.end()]
-                
-                entities.append({
-                    'text': actual_text,
-                    'type': entity_type,
-                    'start': match.start(),
-                    'end': match.end()
-                })
-        
-        # Step 4: Extract addresses
-        addresses = self._extract_addresses(text)
-        entities.extend(addresses)
-        
-        # Step 5: Remove overlapping entities (but keep multiple occurrences of same entity)
-        entities = self._remove_overlapping_entities(entities)
-        
-        # Step 6: Sort by position for consistent processing
-        entities.sort(key=lambda x: x['start'])
-        
-        return entities
-
-    def link_to_britannica(self, entities):
-        """Add basic Britannica linking - optimized for multiple occurrences.""" 
-        import requests
-        import time
-        
-        # Create a dictionary to store link information by entity text + type
-        entity_links = {}
-        
-        # Get unique entity text + type combinations to avoid duplicate API calls
-        unique_entities = {}
-        for entity in entities:
-            entity_key = f"{entity['text'].lower()}:{entity['type']}"
-            if (entity_key not in unique_entities and 
-                not entity.get('wikidata_url') and 
-                not entity.get('wikipedia_url')):
-                unique_entities[entity_key] = entity
-        
-        # Process unique entities that don't have other links
-        for entity_key, entity in unique_entities.items():            
-            try:
-                search_url = "https://www.britannica.com/search"
-                params = {'query': entity['text']}
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-                
-                response = requests.get(search_url, params=params, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    # Look for article links
-                    pattern = r'href="(/topic/[^"]*)"[^>]*>([^<]*)</a>'
-                    matches = re.findall(pattern, response.text)
-                    
-                    for url_path, link_text in matches:
-                        if (entity['text'].lower() in link_text.lower() or 
-                            link_text.lower() in entity['text'].lower()):
-                            entity_links[entity_key] = {
-                                'britannica_url': f"https://www.britannica.com{url_path}",
-                                'britannica_title': link_text.strip()
-                            }
-                            break
-                
-                time.sleep(0.3)  # Rate limiting
-            except Exception:
-                pass
-        
-        # Apply the link information to all entities
-        for entity in entities:
-            entity_key = f"{entity['text'].lower()}:{entity['type']}"
-            if entity_key in entity_links:
-                entity.update(entity_links[entity_key])
-        
-        return entities
-
-    def _detect_geographical_context(self, text: str, entities: List[Dict[str, Any]]) -> List[str]:
-        """
-        Detect geographical context from the text to improve geocoding accuracy.
-        
-        Args:
-            text: The full input text
-            entities: List of extracted entities
-        
-        Returns:
-            List of context strings to use for geocoding (e.g., ['UK', 'London', 'England'])
-        """
-        context_clues = []
-        text_lower = text.lower()
-        
-        # Extract major cities/countries mentioned in the text
-        major_locations = {
-            # Countries
-            'uk': ['uk', 'united kingdom', 'britain', 'great britain'],
-            'usa': ['usa', 'united states', 'america', 'us '],
-            'canada': ['canada'],
-            'australia': ['australia'],
-            'france': ['france'],
-            'germany': ['germany'],
-            'italy': ['italy'],
-            'spain': ['spain'],
-            'japan': ['japan'],
-            'china': ['china'],
-            'india': ['india'],
-            
-            # Major cities that provide strong context
-            'london': ['london'],
-            'new york': ['new york', 'nyc', 'manhattan'],
-            'paris': ['paris'],
-            'tokyo': ['tokyo'],
-            'sydney': ['sydney'],
-            'toronto': ['toronto'],
-            'berlin': ['berlin'],
-            'rome': ['rome'],
-            'madrid': ['madrid'],
-            'beijing': ['beijing'],
-            'mumbai': ['mumbai'],
-            'los angeles': ['los angeles', 'la ', ' la,'],
-            'chicago': ['chicago'],
-            'boston': ['boston'],
-            'edinburgh': ['edinburgh'],
-            'glasgow': ['glasgow'],
-            'manchester': ['manchester'],
-            'birmingham': ['birmingham'],
-            'liverpool': ['liverpool'],
-            'bristol': ['bristol'],
-            'leeds': ['leeds'],
-            'cardiff': ['cardiff'],
-            'belfast': ['belfast'],
-            'dublin': ['dublin'],
-        }
-        
-        # Check for explicit mentions
-        for location, patterns in major_locations.items():
-            for pattern in patterns:
-                if pattern in text_lower:
-                    context_clues.append(location)
-                    break
-        
-        # Extract from entities that are already identified as places
-        for entity in entities:
-            if entity['type'] in ['GPE', 'LOCATION']:
-                entity_lower = entity['text'].lower()
-                # Add major locations found in entities
-                for location, patterns in major_locations.items():
-                    if entity_lower in patterns or any(p in entity_lower for p in patterns):
-                        if location not in context_clues:
-                            context_clues.append(location)
-        
-        # Look for postal codes to infer country
-        postal_patterns = {
-            'uk': [
-                r'\b[A-Z]{1,2}\d{1,2}[A-Z]?\s*\d[A-Z]{2}\b',  # UK postcodes
-                r'\b[A-Z]{2}\d{1,2}\s*\d[A-Z]{2}\b'
-            ],
-            'usa': [
-                r'\b\d{5}(-\d{4})?\b'  # US ZIP codes
-            ],
-            'canada': [
-                r'\b[A-Z]\d[A-Z]\s*\d[A-Z]\d\b'  # Canadian postal codes
-            ]
-        }
-        
-        for country, patterns in postal_patterns.items():
-            for pattern in patterns:
-                if re.search(pattern, text):
-                    if country not in context_clues:
-                        context_clues.append(country)
-                    break
-        
-        # Prioritize context (more specific first)
-        priority_order = ['london', 'new york', 'paris', 'tokyo', 'sydney', 'uk', 'usa', 'canada', 'australia', 'france', 'germany']
-        prioritized_context = []
-        
-        for priority_location in priority_order:
-            if priority_location in context_clues:
-                prioritized_context.append(priority_location)
-        
-        # Add remaining context clues
-        for clue in context_clues:
-            if clue not in prioritized_context:
-                prioritized_context.append(clue)
-        
-        return prioritized_context[:3]  # Return top 3 context clues
-
-    def get_coordinates(self, entities):
-        """Enhanced coordinate lookup with geographical context detection."""
-        import requests
-        import time
-        
-        # Detect geographical context from the full text
-        context_clues = self._detect_geographical_context(
-            st.session_state.get('processed_text', ''), 
-            entities
-        )
-        
-        if context_clues:
-            print(f"Detected geographical context: {', '.join(context_clues)}")
-        
-        place_types = ['GPE', 'LOCATION', 'FACILITY', 'ORGANIZATION', 'ADDRESS']
-        
-        for entity in entities:
-            if entity['type'] in place_types:
-                # Skip if already has coordinates
-                if entity.get('latitude') is not None:
-                    continue
-                
-                # Try geocoding with context
-                if self._try_contextual_geocoding(entity, context_clues):
-                    continue
-                    
-                # Fall back to original methods
-                if self._try_python_geocoding(entity):
-                    continue
-                
-                if self._try_openstreetmap(entity):
-                    continue
-                    
-                # If still no coordinates, try a more aggressive search
-                self._try_aggressive_geocoding(entity)
-        
-        return entities
-    
-    def _try_contextual_geocoding(self, entity, context_clues):
-        """Try geocoding with geographical context."""
-        import requests
-        import time
-        
-        if not context_clues:
-            return False
-        
-        # Create context-aware search terms
-        search_variations = [entity['text']]
-        
-        # Add context to search terms
-        for context in context_clues:
-            context_mapping = {
-                'uk': ['UK', 'United Kingdom', 'England', 'Britain'],
-                'usa': ['USA', 'United States', 'US'],
-                'canada': ['Canada'],
-                'australia': ['Australia'],
-                'france': ['France'],
-                'germany': ['Germany'],
-                'london': ['London, UK', 'London, England'],
-                'new york': ['New York, USA', 'New York, NY'],
-                'paris': ['Paris, France'],
-                'tokyo': ['Tokyo, Japan'],
-                'sydney': ['Sydney, Australia'],
-            }
-            
-            context_variants = context_mapping.get(context, [context])
-            for variant in context_variants:
-                search_variations.append(f"{entity['text']}, {variant}")
-        
-        # Remove duplicates while preserving order
-        search_variations = list(dict.fromkeys(search_variations))
-        
-        # Try geopy first with context
-        try:
-            from geopy.geocoders import Nominatim
-            from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-            
-            geocoder = Nominatim(user_agent="EntityLinker/1.0", timeout=10)
-            
-            for search_term in search_variations[:5]:  # Try top 5 variations
-                try:
-                    location = geocoder.geocode(search_term, timeout=10)
-                    if location:
-                        entity['latitude'] = location.latitude
-                        entity['longitude'] = location.longitude
-                        entity['location_name'] = location.address
-                        entity['geocoding_source'] = f'geopy_contextual'
-                        entity['search_term_used'] = search_term
-                        return True
-                    
-                    time.sleep(0.2)  # Rate limiting
-                except (GeocoderTimedOut, GeocoderServiceError):
-                    continue
-                    
-        except ImportError:
-            pass
-        
-        # Fall back to OpenStreetMap with context
-        for search_term in search_variations[:3]:  # Try top 3 with OSM
-            try:
-                url = "https://nominatim.openstreetmap.org/search"
-                params = {
-                    'q': search_term,
-                    'format': 'json',
-                    'limit': 1,
-                    'addressdetails': 1
-                }
-                headers = {'User-Agent': 'EntityLinker/1.0'}
-            
-                response = requests.get(url, params=params, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data:
-                        result = data[0]
-                        entity['latitude'] = float(result['lat'])
-                        entity['longitude'] = float(result['lon'])
-                        entity['location_name'] = result['display_name']
-                        entity['geocoding_source'] = f'openstreetmap_contextual'
-                        entity['search_term_used'] = search_term
-                        return True
-            
-                time.sleep(0.3)  # Rate limiting
-            except Exception:
-                continue
-        
-        return False
-    
-    def _try_python_geocoding(self, entity):
-        """Try Python geocoding libraries (geopy) - original method."""
-        try:
-            from geopy.geocoders import Nominatim, ArcGIS
-            from geopy.exc import GeocoderTimedOut, GeocoderServiceError
-            
-            geocoders = [
-                ('nominatim', Nominatim(user_agent="EntityLinker/1.0", timeout=10)),
-                ('arcgis', ArcGIS(timeout=10)),
-            ]
-            
-            for name, geocoder in geocoders:
-                try:
-                    location = geocoder.geocode(entity['text'], timeout=10)
-                    if location:
-                        entity['latitude'] = location.latitude
-                        entity['longitude'] = location.longitude
-                        entity['location_name'] = location.address
-                        entity['geocoding_source'] = f'geopy_{name}'
-                        return True
-                        
-                    time.sleep(0.3)
-                except (GeocoderTimedOut, GeocoderServiceError):
-                    continue
-                except Exception as e:
-                    continue
-                        
-        except ImportError:
-            pass
-        except Exception as e:
-            pass
-        
-        return False
-    
-    def _try_openstreetmap(self, entity):
-        """Fall back to direct OpenStreetMap Nominatim API."""
-        try:
-            url = "https://nominatim.openstreetmap.org/search"
-            params = {
-                'q': entity['text'],
-                'format': 'json',
-                'limit': 1,
-                'addressdetails': 1
-            }
-            headers = {'User-Agent': 'EntityLinker/1.0'}
-        
-            response = requests.get(url, params=params, headers=headers, timeout=10)
-            if response.status_code == 200:
-                data = response.json()
-                if data:
-                    result = data[0]
-                    entity['latitude'] = float(result['lat'])
-                    entity['longitude'] = float(result['lon'])
-                    entity['location_name'] = result['display_name']
-                    entity['geocoding_source'] = 'openstreetmap'
-                    return True
-        
-            time.sleep(0.3)  # Rate limiting
-        except Exception as e:
-            # Debug: print the error for troubleshooting
-            print(f"OpenStreetMap geocoding failed for {entity['text']}: {e}")
-            pass
-        
-        return False
-    
-    def _try_aggressive_geocoding(self, entity):
-        """Try more aggressive geocoding with different search terms."""
-        import requests
-        import time
-        
-        # Try variations of the entity name
-        search_variations = [
-            entity['text'],
-            f"{entity['text']}, UK",  # Add country for UK places
-            f"{entity['text']}, England",
-            f"{entity['text']}, Scotland",
-            f"{entity['text']}, Wales",
-            f"{entity['text']} city",
-            f"{entity['text']} town"
-        ]
-        
-        for search_term in search_variations:
-            try:
-                url = "https://nominatim.openstreetmap.org/search"
-                params = {
-                    'q': search_term,
-                    'format': 'json',
-                    'limit': 1,
-                    'addressdetails': 1
-                }
-                headers = {'User-Agent': 'EntityLinker/1.0'}
-            
-                response = requests.get(url, params=params, headers=headers, timeout=10)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data:
-                        result = data[0]
-                        entity['latitude'] = float(result['lat'])
-                        entity['longitude'] = float(result['lon'])
-                        entity['location_name'] = result['display_name']
-                        entity['geocoding_source'] = f'openstreetmap_aggressive'
-                        entity['search_term_used'] = search_term
-                        return True
-            
-                time.sleep(0.2)  # Rate limiting between attempts
-            except Exception:
-                continue
-        
-        return False
-
-    def _is_valid_entity(self, entity_text: str, entity_type: str, 
-                       pos_tags, entity_start_word_index: int, tokens) -> bool:
-        """Validate an entity by analyzing its grammatical context."""
-        # Skip very short entities
-        if len(entity_text.strip()) <= 1:
-            return False
-        
-        # Get the POS tag for this entity
-        if entity_start_word_index >= len(pos_tags):
-            return True  # Default to valid if we can't find the position
-        
-        word_pos = pos_tags[entity_start_word_index][1]
-        entity_word = pos_tags[entity_start_word_index][0]
-        
-        # Define grammatical categories to filter out
-        verb_tags = ['VB', 'VBD', 'VBG', 'VBN', 'VBP', 'VBZ']
-        adjective_tags = ['JJ', 'JJR', 'JJS']
-        
-        # Filter out words functioning as verbs or adjectives
-        if word_pos in verb_tags or word_pos in adjective_tags or word_pos == 'MD':
-            return False
-        
-        # Special handling for sentence-start words (capitalization bias)
-        if self._is_sentence_start(tokens, entity_start_word_index):
-            return self._validate_sentence_start_entity(
-                entity_word, entity_type, pos_tags, 
-                entity_start_word_index, verb_tags, adjective_tags
-            )
-        
-        # Additional validation for specific entity types
-        if entity_type == 'PERSON':
-            return self._validate_person_entity(pos_tags, entity_start_word_index, word_pos)
-        
-        if entity_type in ['GPE', 'LOCATION', 'FACILITY']:
-            return self._validate_place_entity(pos_tags, entity_start_word_index, word_pos)
-        
-        # Prefer proper nouns as they're more likely to be real entities
-        if word_pos in ['NNP', 'NNPS']:
-            return True
-        
-        return True
-
-    def _is_sentence_start(self, tokens, word_index: int) -> bool:
-        """Check if a word is at the beginning of a sentence."""
-        if word_index == 0:
-            return True
-        
-        # Look back for sentence ending punctuation
-        for i in range(word_index - 1, -1, -1):
-            token = tokens[i]
-            if token in ['.', '!', '?']:
-                return True
-            elif token.isalpha():  # Found a word before any punctuation
-                return False
-        
-        return True  # If we only found punctuation/symbols, it's sentence start
-
-    def _validate_sentence_start_entity(self, entity_word: str, entity_type: str,
-                                      pos_tags, entity_start_word_index: int,
-                                      verb_tags, adjective_tags) -> bool:
-        """Validate entities that appear at sentence start."""
-        try:
-            from nltk import pos_tag
-            # Check POS tag of lowercase version
-            lowercase_tagged = pos_tag([entity_word.lower()])
-            natural_pos = lowercase_tagged[0][1]
-            
-            # Filter out words that would naturally be adjectives/verbs/modals
-            if natural_pos in adjective_tags + verb_tags + ['MD']:
-                return False
-            
-            # Check for verb patterns in context
-            if entity_start_word_index < len(pos_tags) - 1:
-                next_word, next_pos = pos_tags[entity_start_word_index + 1]
-                
-                # Patterns suggesting verb usage
-                if next_pos in ['RB', 'RBR', 'RBS', 'IN', 'TO']:  # followed by adverbs/prepositions
-                    return False
-                
-                # For PERSON: if followed by nouns, could be adjective
-                if entity_type == 'PERSON' and next_pos.startswith('NN'):
-                    return False
-                    
-        except Exception:
-            pass  # If tagging fails, continue with other checks
-        
-        return True
-
-    def _validate_person_entity(self, pos_tags, entity_start_word_index: int, word_pos: str) -> bool:
-        """Additional validation for PERSON entities."""
-        # Check context patterns
-        if entity_start_word_index < len(pos_tags) - 1:
-            next_word, next_pos = pos_tags[entity_start_word_index + 1]
-            # If followed by plural nouns, likely an adjective
-            if next_pos in ['NNS', 'NNPS']:
-                return False
-        
-        # Check previous word context
-        if entity_start_word_index > 0:
-            prev_word, prev_pos = pos_tags[entity_start_word_index - 1]
-            
-            # If preceded by modal verbs or auxiliaries, likely not a person
-            if prev_pos in ['MD', 'VBZ', 'VBP', 'VBD']:
-                return False
-            
-            # If preceded by articles and not proper noun, less likely to be person
-            if prev_pos == 'DT' and word_pos not in ['NNP', 'NNPS']:
-                return False
-        
-        return True
-
-    def _validate_place_entity(self, pos_tags, entity_start_word_index: int, word_pos: str) -> bool:
-        """Additional validation for place entities."""
-        # Check for adjectival usage (e.g., "March weather")
-        if entity_start_word_index < len(pos_tags) - 1:
-            next_word, next_pos = pos_tags[entity_start_word_index + 1]
-            
-            # If followed by noun and not proper noun, likely adjectival
-            if next_pos.startswith('NN') and word_pos not in ['NNP', 'NNPS']:
-                return False
-        
-        return True
-
-    def _extract_addresses(self, text: str):
-        """Extract address patterns that NER might miss."""
-        addresses = []
-        
-        # Patterns for different address formats
-        address_patterns = [
-            r'\b\d{1,4}[-–]\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Lane|Drive|Way|Place|Square|Gardens)\b',
-            r'\b\d{1,4}\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\s+(?:Road|Street|Avenue|Lane|Drive|Way|Place|Square|Gardens)\b'
-        ]
-        
-        for pattern in address_patterns:
-            for match in re.finditer(pattern, text):
-                addresses.append({
-                    'text': match.group(),
-                    'type': 'ADDRESS',
-                    'start': match.start(),
-                    'end': match.end()
-                })
-        
-        return addresses
-
-    def _remove_overlapping_entities(self, entities):
-        """Remove overlapping entities, keeping the longest ones."""
-        entities.sort(key=lambda x: x['start'])
-        
-        filtered = []
-        for entity in entities:
-            overlaps = False
-            for existing in filtered[:]:  # Create a copy to safely modify during iteration
-                # Check if entities overlap
-                if (entity['start'] < existing['end'] and entity['end'] > existing['start']):
-                    # If current entity is longer, remove the existing one
-                    if len(entity['text']) > len(existing['text']):
-                        filtered.remove(existing)
-                        break
-                    else:
-                        # Current entity is shorter, skip it
-                        overlaps = True
-                        break
-            
-            if not overlaps:
-                filtered.append(entity)
-        
-        return filtered
-
-    def link_to_wikidata(self, entities):
-        """Add basic Wikidata linking - optimized for multiple occurrences."""
-        import requests
-        import time
-        
-        # Create a dictionary to store link information by entity text + type
-        entity_links = {}
-        
-        # Get unique entity text + type combinations to avoid duplicate API calls
-        unique_entities = {}
-        for entity in entities:
-            entity_key = f"{entity['text'].lower()}:{entity['type']}"
-            if entity_key not in unique_entities:
-                unique_entities[entity_key] = entity
-        
-        # Process unique entities
-        for entity_key, entity in unique_entities.items():
-            try:
-                url = "https://www.wikidata.org/w/api.php"
-                params = {
-                    'action': 'wbsearchentities',
-                    'format': 'json',
-                    'search': entity['text'],
-                    'language': 'en',
-                    'limit': 1,
-                    'type': 'item'
-                }
-                
-                response = requests.get(url, params=params, timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get('search') and len(data['search']) > 0:
-                        result = data['search'][0]
-                        entity_links[entity_key] = {
-                            'wikidata_url': f"http://www.wikidata.org/entity/{result['id']}",
-                            'wikidata_description': result.get('description', '')
-                        }
-                
-                time.sleep(0.1)  # Rate limiting
-            except Exception:
-                pass  # Continue if API call fails
-        
-        # Apply the link information to all entities
-        for entity in entities:
-            entity_key = f"{entity['text'].lower()}:{entity['type']}"
-            if entity_key in entity_links:
-                entity.update(entity_links[entity_key])
-        
-        return entities
-
-    def link_to_wikipedia(self, entities):
-        """Add Wikipedia linking for entities without Wikidata links - optimized for multiple occurrences."""
-        import requests
-        import time
-        import urllib.parse
-        
-        # Create a dictionary to store link information by entity text + type
-        entity_links = {}
-        
-        # Get unique entity text + type combinations to avoid duplicate API calls
-        unique_entities = {}
-        for entity in entities:
-            entity_key = f"{entity['text'].lower()}:{entity['type']}"
-            if entity_key not in unique_entities and not entity.get('wikidata_url'):
-                unique_entities[entity_key] = entity
-        
-        # Process unique entities that don't have Wikidata links
-        for entity_key, entity in unique_entities.items():
-            try:
-                # Use Wikipedia's search API
-                search_url = "https://en.wikipedia.org/w/api.php"
-                search_params = {
-                    'action': 'query',
-                    'format': 'json',
-                    'list': 'search',
-                    'srsearch': entity['text'],
-                    'srlimit': 1
-                }
-                
-                headers = {'User-Agent': 'EntityLinker/1.0'}
-                response = requests.get(search_url, params=search_params, headers=headers, timeout=10)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    if data.get('query', {}).get('search'):
-                        # Get the first search result
-                        result = data['query']['search'][0]
-                        page_title = result['title']
-                        
-                        # Create Wikipedia URL
-                        encoded_title = urllib.parse.quote(page_title.replace(' ', '_'))
-                        
-                        entity_links[entity_key] = {
-                            'wikipedia_url': f"https://en.wikipedia.org/wiki/{encoded_title}",
-                            'wikipedia_title': page_title
-                        }
-                        
-                        # Get a snippet/description from the search result
-                        if result.get('snippet'):
-                            # Clean up the snippet (remove HTML tags)
-                            snippet = re.sub(r'<[^>]+>', '', result['snippet'])
-                            entity_links[entity_key]['wikipedia_description'] = snippet[:200] + "..." if len(snippet) > 200 else snippet
-                
-                time.sleep(0.2)  # Rate limiting
-            except Exception as e:
-                print(f"Wikipedia linking failed for {entity['text']}: {e}")
-                pass
-        
-        # Apply the link information to all entities
-        for entity in entities:
-            entity_key = f"{entity['text'].lower()}:{entity['type']}"
-            if entity_key in entity_links:
-                entity.update(entity_links[entity_key])
-        
-        return entities
-
-    def link_to_openstreetmap(self, entities):
-        """Add OpenStreetMap links to addresses."""
-        import requests
-        import time
-        
-        for entity in entities:
-            # Only process ADDRESS entities
-            if entity['type'] != 'ADDRESS':
-                continue
-                
-            try:
-                # Search OpenStreetMap Nominatim for the address
-                url = "https://nominatim.openstreetmap.org/search"
-                params = {
-                    'q': entity['text'],
-                    'format': 'json',
-                    'limit': 1,
-                    'addressdetails': 1
-                }
-                headers = {'User-Agent': 'EntityLinker/1.0'}
-                
-                response = requests.get(url, params=params, headers=headers, timeout=5)
-                if response.status_code == 200:
-                    data = response.json()
-                    if data:
-                        result = data[0]
-                        # Create OpenStreetMap link
-                        lat = result['lat']
-                        lon = result['lon']
-                        entity['openstreetmap_url'] = f"https://www.openstreetmap.org/?mlat={lat}&mlon={lon}&zoom=18"
-                        entity['openstreetmap_display_name'] = result['display_name']
-                        
-                        # Also add coordinates
-                        entity['latitude'] = float(lat)
-                        entity['longitude'] = float(lon)
-                        entity['location_name'] = result['display_name']
-                
-                time.sleep(0.2)  # Rate limiting
-            except Exception:
-                pass
-        
-        return entities
-
-
-class StreamlitEntityLinker:
-    """
-    Streamlit wrapper for the EntityLinker class.
-    
-    Provides a web interface with additional visualization and
-    export capabilities for entity analysis.
-    """
-    
-    def __init__(self):
-        """Initialize the Streamlit Entity Linker."""
-        self.entity_linker = EntityLinker()
-        
-        # Initialize session state
-        if 'entities' not in st.session_state:
-            st.session_state.entities = []
-        if 'processed_text' not in st.session_state:
-            st.session_state.processed_text = ""
-        if 'html_content' not in st.session_state:
-            st.session_state.html_content = ""
-        if 'analysis_title' not in st.session_state:
-            st.session_state.analysis_title = "text_analysis"
-        if 'last_processed_hash' not in st.session_state:
-            st.session_state.last_processed_hash = ""
-
-    @st.cache_data
-    def cached_extract_entities(_self, text: str) -> List[Dict[str, Any]]:
-        """Cached entity extraction to avoid reprocessing same text."""
-        return _self.entity_linker.extract_entities(text)
-    
-    @st.cache_data  
-    def cached_link_to_wikidata(_self, entities_json: str) -> str:
-        """Cached Wikidata linking."""
-        entities = json.loads(entities_json)
-        linked_entities = _self.entity_linker.link_to_wikidata(entities)
-        return json.dumps(linked_entities)
-    
-    @st.cache_data
-    def cached_link_to_britannica(_self, entities_json: str) -> str:
-        """Cached Britannica linking."""
-        entities = json.loads(entities_json)
-        linked_entities = _self.entity_linker.link_to_britannica(entities)
-        return json.dumps(linked_entities)
-
-    @st.cache_data
-    def cached_link_to_wikipedia(_self, entities_json: str) -> str:
-        """Cached Wikipedia linking."""
-        entities = json.loads(entities_json)
-        linked_entities = _self.entity_linker.link_to_wikipedia(entities)
-        return json.dumps(linked_entities)
+    main()
